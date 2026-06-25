@@ -123,6 +123,29 @@ rebuild; a plain git flake ref would exclude it and the build would error.)
 Re-run `setup-libvirt-vm.sh` only to rebuild the base image from scratch (wipes VM
 state — projects, ~/.emacs.d, docker images).
 
+## Stopping / deleting the VM
+`export LIBVIRT_DEFAULT_URI=qemu:///system` first.
+
+**Just stop it** (keep the disk; restart later with `virsh start lc-nix-libvirt`):
+```bash
+virsh shutdown lc-nix-libvirt      # graceful (ACPI/guest-agent)
+virsh destroy  lc-nix-libvirt      # or force, if it won't respond
+```
+
+**Fully delete it** (stop + remove definition, nvram, and disk):
+```bash
+virsh destroy  lc-nix-libvirt 2>/dev/null            # must be off before undefine
+virsh undefine --nvram lc-nix-libvirt                # remove domain + UEFI varstore
+sudo rm -f /var/lib/libvirt/images/lc-nix-libvirt.qcow2
+sudo rm -f /var/lib/libvirt/images/lc-nix-libvirt_VARS.fd   # if --nvram left it
+virsh list --all                                     # confirm it's gone
+```
+One-shot alternative for the disk: `virsh undefine --nvram --remove-all-storage
+lc-nix-libvirt` (removes the attached disk too, if libvirt tracks it as a pool
+volume). Paths match the script's `${IMG_DIR}/${NAME}.qcow2` — adjust if you
+overrode them. This touches only the VM + its disk, not the `libvirt-nix/` files or
+the Nix store; re-run `setup-libvirt-vm.sh` to recreate it fresh.
+
 ## Networking
 - **Default = macvtap** (`<interface type='direct'>` onto the host NIC): the VM gets
   a real LAN IP from your router, reachable from the laptop, with **no host bridge**
