@@ -1,0 +1,115 @@
+<!--
+  libvirt domain for the NixOS dev VM on the RK3588 (Armbian) host.
+
+  @PLACEHOLDERS@ are filled in by setup-libvirt-vm.sh (paths, bridge, firmware).
+  The point of this whole file is the <cputune> 1:1 vCPU pinning: each vCPU is
+  bolted to one physical core spanning BOTH clusters (A55 0-3 + A76 4-7), so a
+  single KVM guest uses all 8 cores. libvirt applies the pin during its -S
+  (paused) startup, before the per-vCPU register init — which is what defeats the
+  CCSIDR "Failed to put registers after init" crash that killed floating-vCPU
+  setups under Lima. VERIFY the cpuset numbers against `lscpu -e` on your host
+  (A76 ≈ 2.2-2.4 GHz). 1:1 across 0-7 is what matters regardless of which is which.
+-->
+<domain type="kvm">
+  <name>lc-nix-libvirt</name>
+  <memory unit="GiB">16</memory>
+  <currentMemory unit="GiB">16</currentMemory>
+
+  <!-- virtiofs requires shared memory -->
+  <memoryBacking>
+    <source type="memfd"/>
+    <access mode="shared"/>
+  </memoryBacking>
+
+  <vcpu placement="static">8</vcpu>
+  <cputune>
+    <vcpupin vcpu="0" cpuset="0"/>
+    <vcpupin vcpu="1" cpuset="1"/>
+    <vcpupin vcpu="2" cpuset="2"/>
+    <vcpupin vcpu="3" cpuset="3"/>
+    <vcpupin vcpu="4" cpuset="4"/>
+    <vcpupin vcpu="5" cpuset="5"/>
+    <vcpupin vcpu="6" cpuset="6"/>
+    <vcpupin vcpu="7" cpuset="7"/>
+    <!-- keep QEMU's own IO/emulator threads on the little cores -->
+    <emulatorpin cpuset="0-3"/>
+  </cputune>
+
+  <os>
+    <type arch="aarch64" machine="virt">hvm</type>
+    <!-- UEFI: AAVMF firmware (qemu-efi-aarch64). @LOADER@/@NVRAM@ filled by the
+         script; the template is the Debian path. -->
+    <loader readonly="yes" type="pflash">@LOADER@</loader>
+    <nvram template="@NVRAM_TEMPLATE@">@NVRAM@</nvram>
+    <boot dev="hd"/>
+  </os>
+
+  <features>
+    <gic version="3"/>
+  </features>
+
+  <!-- -cpu host: pass the physical core through. Required for the big.LITTLE test. -->
+  <cpu mode="host-passthrough" check="none"/>
+
+  <clock offset="utc"/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+
+  <devices>
+    <emulator>@EMULATOR@</emulator>
+
+    <!-- Root disk: the qcow2 built by `nix build .#qcow`, staged + resized. -->
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2" discard="unmap"/>
+      <source file="@DISK@"/>
+      <target dev="vda" bus="virtio"/>
+    </disk>
+
+    <!-- virtiofs share of the flake dir → /mnt/nixos-config in the guest.
+         target dir must match configuration.nix fileSystems device "nixos-config". -->
+    <filesystem type="mount" accessmode="passthrough">
+      <driver type="virtiofs"/>
+      <source dir="@SHARE_NIXOS_CONFIG@"/>
+      <target dir="nixos-config"/>
+    </filesystem>
+
+    <!-- Networking. Default: macvtap (type='direct') onto the host NIC → the VM
+         gets a real LAN IP from your router, reachable from the laptop, with NO
+         host bridge needed (nothing for OpenMediaVault's network mgmt to clash
+         with). Caveat: the HOST itself can't reach the VM over macvtap (kernel
+         limitation) — manage it via `virsh console`; other LAN machines are fine.
+         @NIC@ = the host ethernet device (filled by the script; see `ip -br link`). -->
+    <interface type="direct">
+      <source dev="@NIC@" mode="bridge"/>
+      <model type="virtio"/>
+      <rom enabled="no"/>   <!-- no PXE option ROM (avoids needing ipxe-qemu's efi-virtio.rom) -->
+    </interface>
+    <!-- Alternative A — real host bridge (host CAN also reach the VM). Create the
+         bridge in the OMV web UI first (Network > Interfaces > Bridge), then replace
+         the block above with:
+    <interface type="bridge">
+      <source bridge="br0"/>
+      <model type="virtio"/>
+    </interface>
+    -->
+    <!-- Alternative B — libvirt NAT (private 192.168.122.x; reach via host or a
+         portForward). Needs `virsh net-start default`. Replace the block above with:
+    <interface type="network">
+      <source network="default"/>
+      <model type="virtio"/>
+    </interface>
+    -->
+
+    <!-- serial console for `virsh console` -->
+    <serial type="pty"><target type="system-serial" port="0"/></serial>
+    <console type="pty"><target type="serial" port="0"/></console>
+
+    <!-- qemu-guest-agent channel (pairs with services.qemuGuest in the guest) -->
+    <channel type="unix">
+      <target type="virtio" name="org.qemu.guest_agent.0"/>
+    </channel>
+
+    <rng model="virtio"><backend model="random">/dev/urandom</backend></rng>
+  </devices>
+</domain>
