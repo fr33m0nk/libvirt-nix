@@ -3,10 +3,12 @@
 #
 #   ./setup-libvirt-vm.sh
 #
-# Flow: build a bootable qcow2 from the flake (`nix build .#qcow`), stage it into
-# libvirt's image dir, create the UEFI nvram, fill domain.xml's @PLACEHOLDERS@, then
-# `virsh define` + `virsh start`. The 1:1 vCPU pinning lives in domain.xml's
-# <cputune> — that's what lets this one VM span both A76+A55 clusters.
+# Flow: build a bootable qcow2 from the flake (two phases — compile the closure on
+# all cores, then assemble the image pinned to one cluster; see step 1), stage it
+# into libvirt's image dir, create the UEFI nvram, fill domain.xml's @PLACEHOLDERS@,
+# then `virsh define` + `virsh start`. Run it WITHOUT an external taskset — it pins
+# only the part that needs it. The 1:1 vCPU pinning for the *running* VM lives in
+# domain.xml's <cputune> — that's what lets this one VM span both A76+A55 clusters.
 #
 # After first boot, change config IN PLACE (state preserved) by SSHing in and:
 #     sudo nixos-rebuild switch --flake /mnt/nixos-config#libvirt-vm-aarch64
@@ -23,6 +25,7 @@ DISK="${IMG_DIR}/${NAME}.qcow2"
 NVRAM="${IMG_DIR}/${NAME}_VARS.fd"
 SHARE_NIXOS_CONFIG="${HERE}"                        # the flake dir, virtiofs-shared
 DISK_GROW="${DISK_GROW:-40G}"                       # final disk size
+BUILD_PIN="${BUILD_PIN:-4-7}"                       # cores for the pinned image step (A76 cluster)
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
 # Host NIC for macvtap — the VM attaches directly onto it and gets a LAN IP, no
@@ -52,11 +55,25 @@ done
 NVRAM_TEMPLATE="/usr/share/AAVMF/AAVMF_VARS.fd"
 [ -n "${LOADER:-}" ] || { echo "AAVMF firmware not found (apt install qemu-efi-aarch64)"; exit 1; }
 
-# ---- 1. build the qcow2 from the flake ------------------------------------
-# `path:` ref (not `.#`) so the untracked ssh-authorized-key.pub is visible to the
-# build (a plain git flake ref excludes untracked/gitignored files).
-echo ">>> building image: nix build path:.#packages.${ARCH}-linux.qcow"
-OUT="$(nix build "path:${HERE}#packages.${ARCH}-linux.qcow" \
+# ---- 1. build the qcow2 from the flake (two phases) -----------------------
+# Big.LITTLE makes this tricky: make-disk-image boots a brief internal KVM VM to
+# install the bootloader, and a floating-vCPU VM crashes on RK3588 ("Failed to put
+# registers after init"). But the *compilation* (emacs, clojure-lsp, toolchain) is
+# pure CPU with no KVM. So:
+#   1a. compile the system closure on ALL cores (fast, no pin) — heavy part.
+#   1b. assemble the qcow under `taskset` to ONE cluster — only the short internal
+#       VM is pinned; the closure is already cached from 1a.
+# `path:` ref (not `.#`) so the untracked ssh-authorized-key.pub is visible.
+# NOTE: assumes single-user Nix (taskset reaches the in-process build). For a
+# multi-user daemon, pin it instead via nix-daemon.service CPUAffinity=${BUILD_PIN}.
+FLAKE="path:${HERE}"
+TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-${ARCH}.config.system.build.toplevel"
+
+echo ">>> [1/2] compiling system closure on all cores: ${TOPLEVEL}"
+nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --no-link
+
+echo ">>> [2/2] assembling qcow (pinned to cores ${BUILD_PIN}): ${FLAKE}#packages.${ARCH}-linux.qcow"
+OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
   --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
 SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
 [ -n "$SRC_QCOW" ] || { echo "no .qcow2 in build output"; exit 1; }

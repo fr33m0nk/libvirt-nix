@@ -84,11 +84,30 @@
   };
 
   # --- Networking ---------------------------------------------------------
-  # Bridged NIC (domain.xml) → the VM gets a real LAN IP, reachable from the
-  # laptop directly (cleaner than Lima's port-forwards; no guest-agent mismatch).
+  # macvtap NIC (domain.xml) → the VM sits directly on the LAN. STATIC IP so the
+  # address is stable AND the network comes up early at boot with no DHCP race —
+  # which is what made the first-boot Spacemacs clone fail (see below).
+  # VERIFY the interface name with `ip -br link` if the NIC ever enumerates as
+  # something other than enp2s0; if the static config is wrong you can still get in
+  # via `virsh console lc-nix-libvirt`.
   networking.hostName = "lc-nix-libvirt";
-  networking.useDHCP = lib.mkDefault true;
+  networking.useDHCP = false;
+  networking.interfaces.enp2s0.ipv4.addresses = [
+    { address = "192.168.29.45"; prefixLength = 24; }
+  ];
+  networking.defaultGateway = "192.168.29.1";
+  networking.nameservers = [ "192.168.29.240" "1.1.1.1" ];
   networking.firewall.allowedTCPPorts = [ 22 3450 ];   # ssh + the app port
+
+  # Run home-manager activation only AFTER the network is online, so the Spacemacs
+  # clone (a non-fatal activation step that fetches github.com) succeeds on a fresh
+  # first boot instead of being silently skipped. The static IP above makes
+  # network-online reliable and early; together these fix the "plain GNU Emacs on
+  # first boot" symptom.
+  systemd.services."home-manager-prashantsinha" = {
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+  };
 
   # --- Rootless Docker (declarative, same as the lima variant) -------------
   virtualisation.docker = {
@@ -101,7 +120,16 @@
     enable = true;
     libraries = with pkgs; [ stdenv.cc.cc.lib zlib fuse icu libsecret e2fsprogs ];
   };
-  boot.kernel.sysctl."fs.inotify.max_user_watches" = 524288;
+  boot.kernel.sysctl = {
+    "fs.inotify.max_user_watches" = 524288;
+    # The LAN advertises SLAAC IPv6 but it doesn't route out from this macvtap VM.
+    # Emacs's url library prefers the AAAA address and then hangs (e.g. fetching the
+    # GNU/nongnu ELPA archives), which silently broke the Spacemacs package install
+    # (`curl` masked it via happy-eyeballs IPv4 fallback). The VM is IPv4-only, so
+    # disable IPv6 outright.
+    "net.ipv6.conf.all.disable_ipv6" = 1;
+    "net.ipv6.conf.default.disable_ipv6" = 1;
+  };
 
   # --- Memory headroom (zram + overflow swapfile) -------------------------
   zramSwap = { enable = true; memoryPercent = 50; };

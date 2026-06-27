@@ -77,11 +77,18 @@ bridge/NAT alternatives.
    # then paste your key, or on your laptop:  cat ~/.ssh/id_rsa.pub
    ```
 2. **Verify the core map** matches `domain.xml`'s `<cputune>`: `lscpu -e` (A76 ≈ 2.2–2.4 GHz). 1:1 across `0-7` is the requirement; the cpuset numbers just need to be every physical core.
-3. Run it (no `taskset` — libvirt does the pinning via `<cputune>`):
+3. Run it — **no external `taskset`** (the script pins only the part that needs it):
    ```bash
    cd libvirt-nix
    ./setup-libvirt-vm.sh
    ```
+   It builds in two phases: **(1)** compile the system closure on **all cores** (pure
+   CPU, no KVM), then **(2)** assemble the qcow under `taskset -c 4-7` — because
+   `make-disk-image` boots a brief internal KVM VM to install the bootloader, and a
+   floating-vCPU VM crashes on big.LITTLE. Only that short step is pinned, so you get
+   8-core speed for the heavy compile. (Override the pin cores with
+   `BUILD_PIN=4-7`; assumes single-user Nix — for a multi-user daemon, pin it via
+   `nix-daemon.service` `CPUAffinity=` instead.)
 4. Verify:
    ```bash
    virsh vcpupin lc-nix-libvirt              # 0->0 .. 7->7
@@ -90,8 +97,16 @@ bridge/NAT alternatives.
    ```
 
 ## Finding the VM's IP (to SSH from your laptop)
-With **macvtap** the DHCP lease comes from your LAN router, so libvirt's default
-`--source lease` shows **nothing**. Use the guest agent or the host ARP table:
+`configuration.nix` assigns a **static IP** (default `192.168.29.45` on `enp2s0`,
+gateway `192.168.29.1`, DNS `192.168.29.240`), so you normally just:
+```bash
+ssh prashantsinha@192.168.29.45
+```
+**Adjust those values for your LAN** (IP/gateway/DNS, and the interface name if the
+NIC enumerates differently — `ip -br link`). If you'd rather use DHCP, set
+`networking.useDHCP = true` and drop the static block; then discover the address —
+with **macvtap** the lease comes from your router, so libvirt's default
+`--source lease` shows **nothing**, and you use the guest agent or host ARP table:
 ```bash
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
@@ -169,6 +184,9 @@ the Nix store; re-run `setup-libvirt-vm.sh` to recreate it fresh.
 - [ ] macvtap NIC auto-detected correctly (`ip -br link`); the host won't be able to
       SSH the VM over macvtap (use `virsh console`) — switch to an OMV bridge if you
       need host→VM access.
+- [ ] static-IP interface name in `configuration.nix` (`enp2s0`) matches the guest
+      (`ip -br link`) and the IP/gateway/DNS suit your LAN — a wrong name leaves the
+      VM with no network (recover via `virsh console`).
 - [ ] vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`),
       not just at idle — the register issue is at init, but confirm cross-cluster
       scheduling doesn't wobble under real builds.
