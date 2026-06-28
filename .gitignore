@@ -1,6 +1,9 @@
 # SSH public key(s) for the VM — kept OUT of the repo (create from the .example).
 ssh-authorized-key.pub
 
+# Cachix auth token — never commit (place on virtiofs for auto-push)
+.cachix-token
+
 # Build artifacts
 result
 result-*

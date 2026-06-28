@@ -12,6 +12,7 @@ set -euo pipefail
 
 TARGET_USER="${SUDO_USER:-$USER}"
 NIX_CACHIX_KEY="nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+NIX_FR33M0NK_KEY="fr33m0nk.cachix.org-1:242Y5El6BIU2qbK/6MKJLPDdfHYRu/JVgrcVVkwERDw="
 
 command -v apt-get >/dev/null || { echo "This script targets Debian/Armbian (apt). Aborting."; exit 1; }
 
@@ -64,8 +65,8 @@ add_nixconf () {  # add_nixconf <key> <line>
 }
 add_nixconf "experimental-features"      "experimental-features = nix-command flakes"
 add_nixconf "trusted-users"              "trusted-users = root @wheel ${TARGET_USER}"
-add_nixconf "extra-substituters"         "extra-substituters = https://nix-community.cachix.org"
-add_nixconf "extra-trusted-public-keys"  "extra-trusted-public-keys = ${NIX_CACHIX_KEY}"
+add_nixconf "extra-substituters"         "extra-substituters = https://nix-community.cachix.org https://fr33m0nk.cachix.org"
+add_nixconf "extra-trusted-public-keys"  "extra-trusted-public-keys = ${NIX_CACHIX_KEY} ${NIX_FR33M0NK_KEY}"
 sudo systemctl restart nix-daemon 2>/dev/null || true
 
 # Install cachix for binary cache push/pull

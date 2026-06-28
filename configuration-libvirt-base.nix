@@ -117,13 +117,62 @@
 
   # --- Nix ----------------------------------------------------------------
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  nix.settings.extra-substituters = [ "https://nix-community.cachix.org" ];
+  nix.settings.extra-substituters = [
+    "https://nix-community.cachix.org"
+    "https://fr33m0nk.cachix.org"
+  ];
   nix.settings.extra-trusted-public-keys = [
     "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+    "fr33m0nk.cachix.org-1:242Y5El6BIU2qbK/6MKJLPDdfHYRu/JVgrcVVkwERDw="
   ];
 
   # --- Kernel -------------------------------------------------------------
   boot.kernelPackages = pkgs.linuxPackages_latest;
+
+  # --- System packages ---------------------------------------------------
+  environment.systemPackages = with pkgs; [
+    cachix  # push built store paths to fr33m0nk.cachix.org
+  ];
+
+  # After nixos-rebuild switch, push new store paths to the fr33m0nk
+  # Cachix cache so other VMs / fresh installs download pre-built packages.
+  # Requires a Cachix auth token in /mnt/nixos-config/.cachix-token
+  # (gitignored, never committed). Without the token, this is a no-op.
+  systemd.services.cachix-push = {
+    description = "Push new Nix store paths to fr33m0nk.cachix.org";
+    after = [ "nix-daemon.service" "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [ pkgs.cachix pkgs.bash ];
+    script = ''
+      set -euo pipefail
+      TOKEN_FILE=/mnt/nixos-config/.cachix-token
+      CACHE=fr33m0nk
+      if [ ! -f "$TOKEN_FILE" ]; then
+        echo "cachix-push: no .cachix-token on virtiofs, skipping push"
+        exit 0
+      fi
+      if ! cachix authtoken check >/dev/null 2>&1; then
+        cachix authtoken "$(cat "$TOKEN_FILE")"
+      fi
+      # Push the current system closure + all its dependencies
+      cachix push "$CACHE" /run/current-system
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = false;
+    };
+  };
+
+  # Trigger cachix-push after a nix-daemon build reveals /run/current-system
+  # was updated (i.e., a nixos-rebuild switch completed successfully).
+  # The path unit watches the symlink target change.
+  systemd.paths.cachix-push = {
+    wantedBy = [ "multi-user.target" ];
+    pathConfig = {
+      PathChanged = "/run/current-system";
+      Unit = "cachix-push.service";
+    };
+  };
 
   system.stateVersion = "26.05";
 }
