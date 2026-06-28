@@ -96,12 +96,12 @@
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
   networking.defaultGateway = "192.168.29.1";
-  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
+  networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
 
   services.resolved = {
     enable = true;
     dnssec = "true";
-    fallbackDns = [ "9.9.9.11" "149.112.112.11" ];
+    fallbackDns = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
     extraConfig = ''
       DNS=9.9.9.11#dns11.quad9.net
       DNS=149.112.112.11#dns11.quad9.net
@@ -133,13 +133,6 @@
   };
   boot.kernel.sysctl = {
     "fs.inotify.max_user_watches" = 2524288;
-    # The LAN advertises SLAAC IPv6 but it doesn't route out from this macvtap VM.
-    # Emacs's url library prefers the AAAA address and then hangs (e.g. fetching the
-    # GNU/nongnu ELPA archives), which silently broke the Spacemacs package install
-    # (`curl` masked it via happy-eyeballs IPv4 fallback). The VM is IPv4-only, so
-    # disable IPv6 outright.
-    "net.ipv6.conf.all.disable_ipv6" = 1;
-    "net.ipv6.conf.default.disable_ipv6" = 1;
   };
 
   # --- Memory headroom (zram + overflow swapfile) -------------------------

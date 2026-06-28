@@ -86,7 +86,7 @@
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
   networking.defaultGateway = "192.168.29.1";
-  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
+  networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
 
   # DNS-over-TLS via Quad9 secured ECS (encrypted, no ISP snooping).
   # systemd-resolved handles the DoT protocol; /etc/resolv.conf points
@@ -94,7 +94,7 @@
   services.resolved = {
     enable = true;
     dnssec = "true";
-    fallbackDns = [ "9.9.9.11" "149.112.112.11" ];
+    fallbackDns = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
     extraConfig = ''
       DNS=9.9.9.11#dns11.quad9.net
       DNS=149.112.112.11#dns11.quad9.net
@@ -121,8 +121,6 @@
   };
   boot.kernel.sysctl = {
     "fs.inotify.max_user_watches" = 524288;
-    "net.ipv6.conf.all.disable_ipv6" = 1;
-    "net.ipv6.conf.default.disable_ipv6" = 1;
   };
 
   # --- Memory headroom -----------------------------------------------------
