@@ -15,41 +15,66 @@
 # After first boot with --base-image, the script waits for the guest agent, then
 # runs nixos-rebuild inside the VM to apply the full dev toolchain. State is
 # preserved across subsequent rebuilds.
+# Workflow
+#   1. ./setup-libvirt-vm.sh --base-image <qcow2>
+#      ↓ copies + resizes + boots the base image
+#   2. virsh console lc-nix-libvirt
+#      ↓ login: nixos / password: nixos
+#   3. sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
+#      ↓ 1-2 hours: compiles emacs, clojure-lsp, full toolchain
+#   4. Log out, log back in as prashantsinha
+#      ↓ VM is now at 192.168.29.45, SSH from laptop works
+
 set -euo pipefail
 
 # ---- config (edit to taste) ------------------------------------------------
 NAME="lc-nix-libvirt"
-ARCH="$(uname -m)"                                  # aarch64 | x86_64
+ARCH="$(uname -m)" # aarch64 | x86_64
 HERE="$(cd "$(dirname "$0")" && pwd)"
 IMG_DIR="/var/lib/libvirt/images"
 DISK="${IMG_DIR}/${NAME}.qcow2"
 NVRAM="${IMG_DIR}/${NAME}_VARS.fd"
-SHARE_NIXOS_CONFIG="${HERE}"                        # the flake dir, virtiofs-shared
-DISK_GROW="${DISK_GROW:-40G}"                       # final disk size
-BUILD_PIN="${BUILD_PIN:-4-7}"                       # cores for the pinned image step (A76 cluster)
+SHARE_NIXOS_CONFIG="${HERE}"   # the flake dir, virtiofs-shared
+DISK_GROW="${DISK_GROW:-150G}" # final disk size
+BUILD_PIN="${BUILD_PIN:-4-7}"  # cores for the pinned image step (A76 cluster)
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
 # Host NIC for macvtap — the VM attaches directly onto it and gets a LAN IP, no
 # host bridge needed. Auto-detect the device behind the default route; override
 # with: NIC=eth0 ./setup-libvirt-vm.sh
 NIC="${NIC:-$(ip -o route show default 2>/dev/null | awk '{print $5; exit}')}"
-[ -n "$NIC" ] || { echo "could not auto-detect host NIC; set NIC=<dev> (see: ip -br link)"; exit 1; }
+[ -n "$NIC" ] || {
+  echo "could not auto-detect host NIC; set NIC=<dev> (see: ip -br link)"
+  exit 1
+}
 
 # ---- parse args -----------------------------------------------------------
 BASE_QCOW=""
 FORCE=false
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base-image) BASE_QCOW="$2"; shift 2 ;;
-    --force)      FORCE=true; shift ;;
-    *) echo "Usage: $0 [--base-image <qcow2>] [--force]"; exit 1 ;;
+  --base-image)
+    BASE_QCOW="$2"
+    shift 2
+    ;;
+  --force)
+    FORCE=true
+    shift
+    ;;
+  *)
+    echo "Usage: $0 [--base-image <qcow2>] [--force]"
+    exit 1
+    ;;
   esac
 done
 
 USE_BASE=false
 if [ -n "$BASE_QCOW" ]; then
   USE_BASE=true
-  [ -f "$BASE_QCOW" ] || { echo "ERROR: base image not found: $BASE_QCOW"; exit 1; }
+  [ -f "$BASE_QCOW" ] || {
+    echo "ERROR: base image not found: $BASE_QCOW"
+    exit 1
+  }
 fi
 
 # ---- SSH key (kept out of the repo; gitignored) ---------------------------
@@ -64,14 +89,23 @@ fi
 
 # ---- detect host firmware + emulator --------------------------------------
 EMULATOR="$(command -v qemu-system-${ARCH} || true)"
-[ -n "$EMULATOR" ] || { echo "qemu-system-${ARCH} not found (apt install qemu-system-arm)"; exit 1; }
+[ -n "$EMULATOR" ] || {
+  echo "qemu-system-${ARCH} not found (apt install qemu-system-arm)"
+  exit 1
+}
 
 # AAVMF (aarch64 UEFI). Debian split CODE/VARS preferred.
 for cand in /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu-efi-aarch64/QEMU_EFI.fd; do
-  [ -f "$cand" ] && { LOADER="$cand"; break; }
+  [ -f "$cand" ] && {
+    LOADER="$cand"
+    break
+  }
 done
 NVRAM_TEMPLATE="/usr/share/AAVMF/AAVMF_VARS.fd"
-[ -n "${LOADER:-}" ] || { echo "AAVMF firmware not found (apt install qemu-efi-aarch64)"; exit 1; }
+[ -n "${LOADER:-}" ] || {
+  echo "AAVMF firmware not found (apt install qemu-efi-aarch64)"
+  exit 1
+}
 
 # ---- 1. obtain the qcow2 --------------------------------------------------
 if $USE_BASE; then
@@ -92,7 +126,10 @@ else
   OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
     --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
   SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
-  [ -n "$SRC_QCOW" ] || { echo "no .qcow2 in build output"; exit 1; }
+  [ -n "$SRC_QCOW" ] || {
+    echo "no .qcow2 in build output"
+    exit 1
+  }
 fi
 
 # ---- 2. stage a writable copy + grow --------------------------------------
@@ -113,17 +150,17 @@ fi
 # ---- 4. fill the domain template ------------------------------------------
 DOM="$(mktemp)"
 sed -e "s#@EMULATOR@#${EMULATOR}#g" \
-    -e "s#@LOADER@#${LOADER}#g" \
-    -e "s#@NVRAM_TEMPLATE@#${NVRAM_TEMPLATE}#g" \
-    -e "s#@NVRAM@#${NVRAM}#g" \
-    -e "s#@DISK@#${DISK}#g" \
-    -e "s#@SHARE_NIXOS_CONFIG@#${SHARE_NIXOS_CONFIG}#g" \
-    -e "s#@NIC@#${NIC}#g" \
-    "${HERE}/domain.xml" > "$DOM"
+  -e "s#@LOADER@#${LOADER}#g" \
+  -e "s#@NVRAM_TEMPLATE@#${NVRAM_TEMPLATE}#g" \
+  -e "s#@NVRAM@#${NVRAM}#g" \
+  -e "s#@DISK@#${DISK}#g" \
+  -e "s#@SHARE_NIXOS_CONFIG@#${SHARE_NIXOS_CONFIG}#g" \
+  -e "s#@NIC@#${NIC}#g" \
+  "${HERE}/domain.xml" >"$DOM"
 
 # ---- 5. define + start ----------------------------------------------------
 echo ">>> defining + starting ${NAME}"
-virsh destroy  "$NAME" 2>/dev/null || true
+virsh destroy "$NAME" 2>/dev/null || true
 virsh undefine --nvram "$NAME" 2>/dev/null || true
 virsh define "$DOM"
 virsh start "$NAME"
@@ -153,18 +190,18 @@ if $USE_BASE; then
   # rebuild itself.
   echo "  Setting up virtiofs share (base image doesn't have it yet)..."
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mkdir","arg":["-p","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mkdir","arg":["-p","/mnt/nixos-config"],"capture-output":true}}' >/dev/null 2>&1 || true
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' >/dev/null 2>&1 || true
   sleep 1
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config","/mnt/nixos-config"],"capture-output":true}}' >/dev/null 2>&1 || true
   sleep 1
 
   # Verify the flake is now visible
   PID=$(virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ls","arg":["/mnt/nixos-config/flake.nix"],"capture-output":true}}' \
-    | jq -r '.return.pid')
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ls","arg":["/mnt/nixos-config/flake.nix"],"capture-output":true}}' |
+    jq -r '.return.pid')
   if [ -n "$PID" ] && [ "$PID" != "null" ]; then
     sleep 3
     OUT=$(virsh qemu-agent-command "$NAME" \
