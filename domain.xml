@@ -111,5 +111,11 @@
     </channel>
 
     <rng model="virtio"><backend model="random">/dev/urandom</backend></rng>
+
+    <!-- virtio memory balloon: host can reclaim unused guest RAM.
+         Check with: virsh dommemstat lc-nix-libvirt -->
+    <memballoon model="virtio">
+      <stats period="10"/>
+    </memballoon>
   </devices>
 </domain>
