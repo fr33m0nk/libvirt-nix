@@ -96,12 +96,12 @@
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
   networking.defaultGateway = "192.168.29.1";
-  networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
+  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
 
   services.resolved = {
     enable = true;
     dnssec = "true";
-    fallbackDns = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
+    fallbackDns = [ "9.9.9.11" "149.112.112.11" ];
     settings = {
       DNS = [ "9.9.9.11#dns11.quad9.net" "149.112.112.11#dns11.quad9.net" ];
       DNSOverTLS = "yes";
@@ -132,6 +132,11 @@
   };
   boot.kernel.sysctl = {
     "fs.inotify.max_user_watches" = 2524288;
+    # IPv6 is advertised via SLAAC on this LAN but doesn't route out through
+    # the macvtap NIC. Emacs's url library prefers AAAA records and hangs on
+    # connection timeout, breaking Spacemacs package installs.
+    "net.ipv6.conf.all.disable_ipv6" = 1;
+    "net.ipv6.conf.default.disable_ipv6" = 1;
   };
 
   # --- Memory headroom (zram + overflow swapfile) -------------------------
