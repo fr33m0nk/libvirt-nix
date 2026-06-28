@@ -79,6 +79,25 @@
         ];
       };
 
+      # Variant that targets the nixos-libvirt base image (GRUB, /dev/vda1 /boot).
+      # Use this for `nixos-rebuild switch` after booting the pre-built qcow2.
+      mkBaseSystem = system: lib.nixosSystem {
+        inherit system;
+        modules = [
+          ./configuration-libvirt-base.nix
+          {
+            nixpkgs.config.allowUnfreePredicate = unfreePredicate;
+            nixpkgs.overlays = overlays;
+          }
+          home-manager.nixosModules.home-manager
+          {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.users.prashantsinha = import ./home.nix;
+          }
+        ];
+      };
+
       # Build a bootable qcow2 from the SAME nixosConfiguration. partitionTableType
       # "efi" → GPT with an ESP + root (labels ESP/nixos, matching configuration.nix),
       # so the running system can `nixos-rebuild` in place afterwards.
@@ -100,8 +119,10 @@
         };
     in {
       nixosConfigurations = {
-        "libvirt-vm-aarch64" = mkSystem "aarch64-linux";
-        "libvirt-vm-x86_64"  = mkSystem "x86_64-linux";
+        "libvirt-vm-aarch64"       = mkSystem "aarch64-linux";
+        "libvirt-vm-x86_64"        = mkSystem "x86_64-linux";
+        "libvirt-vm-aarch64-base"  = mkBaseSystem "aarch64-linux";
+        "libvirt-vm-x86_64-base"   = mkBaseSystem "x86_64-linux";
       };
 
       packages.aarch64-linux.qcow = mkImage "aarch64-linux";

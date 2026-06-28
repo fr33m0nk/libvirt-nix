@@ -1,0 +1,7 @@
+# SSH public key(s) for the VM — kept OUT of the repo (create from the .example).
+ssh-authorized-key.pub
+
+# Build artifacts
+result
+result-*
+*.qcow2

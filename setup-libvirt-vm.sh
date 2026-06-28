@@ -3,17 +3,18 @@
 #
 #   ./setup-libvirt-vm.sh
 #
-# Flow: build a bootable qcow2 from the flake (two phases — compile the closure on
-# all cores, then assemble the image pinned to one cluster; see step 1), stage it
-# into libvirt's image dir, create the UEFI nvram, fill domain.xml's @PLACEHOLDERS@,
-# then `virsh define` + `virsh start`. Run it WITHOUT an external taskset — it pins
-# only the part that needs it. The 1:1 vCPU pinning for the *running* VM lives in
-# domain.xml's <cputune> — that's what lets this one VM span both A76+A55 clusters.
+# Two modes:
+#   1. BUILD from source (default) — compile the full toolchain + assemble qcow2.
+#      Slow but self-contained; uses the existing configuration.nix + make-disk-image.
+#   2. BASE IMAGE (--base-image <qcow2>) — skip the build; use a pre-built
+#      nixos-libvirt qcow2 from a release. Fast: just copy, resize, boot, then
+#      nixos-rebuild the libvirt-nix config into the running VM.
 #
-# After first boot, change config IN PLACE (state preserved) by SSHing in and:
-#     sudo nixos-rebuild switch --flake /mnt/nixos-config#libvirt-vm-aarch64
-# (the flake dir is virtiofs-shared at /mnt/nixos-config). Re-run THIS script only
-# to rebuild the base image from scratch (see --reimage).
+#   ./setup-libvirt-vm.sh --base-image ../nixos-libvirt/release-v0.0.3-images/nixos-libvirt-v0.0.3-aarch64.qcow2
+#
+# After first boot with --base-image, the script waits for the guest agent, then
+# runs nixos-rebuild inside the VM to apply the full dev toolchain. State is
+# preserved across subsequent rebuilds.
 set -euo pipefail
 
 # ---- config (edit to taste) ------------------------------------------------
@@ -30,9 +31,26 @@ export LIBVIRT_DEFAULT_URI=qemu:///system
 
 # Host NIC for macvtap — the VM attaches directly onto it and gets a LAN IP, no
 # host bridge needed. Auto-detect the device behind the default route; override
-# with: NIC=eth0 ./setup-libvirt-vm.sh   (list candidates with `ip -br link`)
+# with: NIC=eth0 ./setup-libvirt-vm.sh
 NIC="${NIC:-$(ip -o route show default 2>/dev/null | awk '{print $5; exit}')}"
 [ -n "$NIC" ] || { echo "could not auto-detect host NIC; set NIC=<dev> (see: ip -br link)"; exit 1; }
+
+# ---- parse args -----------------------------------------------------------
+BASE_QCOW=""
+FORCE=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base-image) BASE_QCOW="$2"; shift 2 ;;
+    --force)      FORCE=true; shift ;;
+    *) echo "Usage: $0 [--base-image <qcow2>] [--force]"; exit 1 ;;
+  esac
+done
+
+USE_BASE=false
+if [ -n "$BASE_QCOW" ]; then
+  USE_BASE=true
+  [ -f "$BASE_QCOW" ] || { echo "ERROR: base image not found: $BASE_QCOW"; exit 1; }
+fi
 
 # ---- SSH key (kept out of the repo; gitignored) ---------------------------
 KEY_FILE="${HERE}/ssh-authorized-key.pub"
@@ -55,28 +73,27 @@ done
 NVRAM_TEMPLATE="/usr/share/AAVMF/AAVMF_VARS.fd"
 [ -n "${LOADER:-}" ] || { echo "AAVMF firmware not found (apt install qemu-efi-aarch64)"; exit 1; }
 
-# ---- 1. build the qcow2 from the flake (two phases) -----------------------
-# Big.LITTLE makes this tricky: make-disk-image boots a brief internal KVM VM to
-# install the bootloader, and a floating-vCPU VM crashes on RK3588 ("Failed to put
-# registers after init"). But the *compilation* (emacs, clojure-lsp, toolchain) is
-# pure CPU with no KVM. So:
-#   1a. compile the system closure on ALL cores (fast, no pin) — heavy part.
-#   1b. assemble the qcow under `taskset` to ONE cluster — only the short internal
-#       VM is pinned; the closure is already cached from 1a.
-# `path:` ref (not `.#`) so the untracked ssh-authorized-key.pub is visible.
-# NOTE: assumes single-user Nix (taskset reaches the in-process build). For a
-# multi-user daemon, pin it instead via nix-daemon.service CPUAffinity=${BUILD_PIN}.
-FLAKE="path:${HERE}"
-TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-${ARCH}.config.system.build.toplevel"
+# ---- 1. obtain the qcow2 --------------------------------------------------
+if $USE_BASE; then
+  echo ">>> [base-image] using pre-built qcow2: ${BASE_QCOW}"
+  SRC_QCOW="$BASE_QCOW"
+else
+  # Build from source (two phases for big.LITTLE stability).
+  #   1a. compile the system closure on ALL cores (fast, no pin) — heavy part.
+  #   1b. assemble the qcow under `taskset` to ONE cluster — only the short internal
+  #       VM is pinned; the closure is already cached from 1a.
+  FLAKE="path:${HERE}"
+  TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-${ARCH}.config.system.build.toplevel"
 
-echo ">>> [1/2] compiling system closure on all cores: ${TOPLEVEL}"
-nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --no-link
+  echo ">>> [1/2] compiling system closure on all cores: ${TOPLEVEL}"
+  nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --no-link
 
-echo ">>> [2/2] assembling qcow (pinned to cores ${BUILD_PIN}): ${FLAKE}#packages.${ARCH}-linux.qcow"
-OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
-  --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
-SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
-[ -n "$SRC_QCOW" ] || { echo "no .qcow2 in build output"; exit 1; }
+  echo ">>> [2/2] assembling qcow (pinned to cores ${BUILD_PIN}): ${FLAKE}#packages.${ARCH}-linux.qcow"
+  OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
+    --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
+  SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
+  [ -n "$SRC_QCOW" ] || { echo "no .qcow2 in build output"; exit 1; }
+fi
 
 # ---- 2. stage a writable copy + grow --------------------------------------
 echo ">>> staging ${DISK} (+resize to ${DISK_GROW})"
@@ -85,7 +102,15 @@ sudo cp --reflink=auto "$SRC_QCOW" "$DISK"
 sudo chmod u+rw "$DISK"
 sudo qemu-img resize "$DISK" "$DISK_GROW"
 
-# ---- 3. fill the domain template ------------------------------------------
+# ---- 3. create NVRAM ------------------------------------------------------
+if [ -f "$NVRAM_TEMPLATE" ]; then
+  echo ">>> creating NVRAM from template: ${NVRAM_TEMPLATE}"
+  sudo cp "$NVRAM_TEMPLATE" "$NVRAM"
+else
+  echo ">>> NVRAM template not found, libvirt will create a fresh one"
+fi
+
+# ---- 4. fill the domain template ------------------------------------------
 DOM="$(mktemp)"
 sed -e "s#@EMULATOR@#${EMULATOR}#g" \
     -e "s#@LOADER@#${LOADER}#g" \
@@ -96,7 +121,7 @@ sed -e "s#@EMULATOR@#${EMULATOR}#g" \
     -e "s#@NIC@#${NIC}#g" \
     "${HERE}/domain.xml" > "$DOM"
 
-# ---- 4. define + start -----------------------------------------------------
+# ---- 5. define + start ----------------------------------------------------
 echo ">>> defining + starting ${NAME}"
 virsh destroy  "$NAME" 2>/dev/null || true
 virsh undefine --nvram "$NAME" 2>/dev/null || true
@@ -105,11 +130,67 @@ virsh start "$NAME"
 rm -f "$DOM"
 
 echo
-echo "Done. '${NAME}' is defined and started."
+echo "=== VM '${NAME}' is booting ==="
+echo "  console : virsh console ${NAME}"
+
+# ---- 6. post-boot: wait for guest agent, then nixos-rebuild (base-image only)
+if $USE_BASE; then
+  echo
+  echo ">>> Waiting for guest agent (VM booting under libvirt)..."
+  for i in $(seq 1 120); do
+    if virsh qemu-agent-command "$NAME" '{"execute":"guest-info"}' 2>/dev/null | grep -q "version"; then
+      echo "Guest agent is alive!"
+      break
+    fi
+    if [ "$i" -eq 120 ]; then
+      echo "WARNING: Guest agent did not come up after 10 min. The VM may still be booting."
+    fi
+    sleep 5
+  done
+
+  # Verify virtiofs share is visible inside the guest
+  echo "  Checking virtiofs mount..."
+  PID=$(virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ls","arg":["/mnt/nixos-config/flake.nix"],"capture-output":true}}' \
+    | jq -r '.return.pid')
+  if [ -n "$PID" ] && [ "$PID" != "null" ]; then
+    sleep 3
+    OUT=$(virsh qemu-agent-command "$NAME" \
+      "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$PID}}")
+    if echo "$OUT" | jq -r '.return["out-data"] // ""' | base64 -d 2>/dev/null | grep -q flake; then
+      echo "  virtiofs share OK."
+    else
+      echo "  WARNING: virtiofs share not visible. Check domain.xml <filesystem> config."
+    fi
+  fi
+
+  echo
+  echo "=== Base image is booted. To apply the full dev toolchain: ==="
+  echo ""
+  echo "  virsh console ${NAME}"
+  echo "  # login as: nixos  /  password: nixos"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
+  echo ""
+  echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
+  echo "  After it completes, log out and back in as: prashantsinha"
+  echo "  The VM IP (for SSH from your laptop):"
+  echo "    virsh domifaddr ${NAME} --source agent"
+  echo "    # or from console: ip -br addr"
+fi
+
+echo
+echo "Done. '${NAME}' is defined and running."
 echo "  console : virsh console ${NAME}        (login: prashantsinha)"
 echo "  pins    : virsh vcpupin ${NAME}        (expect 0->0 .. 7->7)"
 echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
 echo
-echo "Change config in place (state preserved):"
-echo "  ssh prashantsinha@<vm-ip>  then:"
-echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}"
+if $USE_BASE; then
+  echo "The base image was used — the dev toolchain is now applied via nixos-rebuild."
+  echo "Change config in place (state preserved):"
+  echo "  ssh prashantsinha@<vm-ip>  then:"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
+else
+  echo "Change config in place (state preserved):"
+  echo "  ssh prashantsinha@<vm-ip>  then:"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}"
+fi
