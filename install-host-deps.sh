@@ -64,6 +64,7 @@ add_nixconf () {  # add_nixconf <key> <line>
   grep -q "^$1" "$NIXCONF" 2>/dev/null || echo "$2" | sudo tee -a "$NIXCONF" >/dev/null
 }
 add_nixconf "experimental-features"      "experimental-features = nix-command flakes"
+add_nixconf "max-jobs"                   "max-jobs = 1"
 add_nixconf "trusted-users"              "trusted-users = root @wheel ${TARGET_USER}"
 add_nixconf "extra-substituters"         "extra-substituters = https://nix-community.cachix.org https://fr33m0nk.cachix.org"
 add_nixconf "extra-trusted-public-keys"  "extra-trusted-public-keys = ${NIX_CACHIX_KEY} ${NIX_FR33M0NK_KEY}"

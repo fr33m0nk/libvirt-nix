@@ -117,6 +117,9 @@
 
   # --- Nix ----------------------------------------------------------------
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  # Serialize builds: clojure-lsp native-image uses 8 GB heap alone.
+  # Running another build concurrently on RK3588 (24 GB) risks OOM.
+  nix.settings.max-jobs = 1;
   nix.settings.extra-substituters = [
     "https://nix-community.cachix.org"
     "https://fr33m0nk.cachix.org"
