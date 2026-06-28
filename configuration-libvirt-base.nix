@@ -93,12 +93,12 @@
   # to the local stub resolver (127.0.0.53) which forwards via TLS.
   services.resolved = {
     enable = true;
-    dnssec = "true";
-    fallbackDns = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
     settings = {
       "Resolve" = {
         DNS = [ "9.9.9.11#dns11.quad9.net" "149.112.112.11#dns11.quad9.net" ];
         DNSOverTLS = "yes";
+        DNSSEC = "true";
+        FallbackDNS = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
       };
     };
   };
