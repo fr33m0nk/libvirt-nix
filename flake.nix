@@ -8,9 +8,10 @@
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Emacs 32 (master) → emacs-git-nox. aarch64-linux master isn't cached, so it
-    # compiles from source on first build — but the RK3588 host (8 cores / 24 GB)
-    # handles that far better than the Lima VM did.
+    # Emacs 32 (master) → emacs-git-nox. aarch64-linux master isn't cached
+    # by the nix-community cache, so it compiles from source on first build.
+    # After the first build, cachix-push.service uploads it to
+    # fr33m0nk.cachix.org — subsequent fresh VMs download the pre-built binary.
     emacs-overlay = {
       url = "github:nix-community/emacs-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
