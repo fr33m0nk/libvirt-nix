@@ -149,7 +149,8 @@
 
   # --- System packages ---------------------------------------------------
   environment.systemPackages = with pkgs; [
-    cachix  # push built store paths to fr33m0nk.cachix.org
+    cachix
+    iputils  # ping, ping6, tracepath
   ];
 
   # After nixos-rebuild switch, push new store paths to the fr33m0nk
