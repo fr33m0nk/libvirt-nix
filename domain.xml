@@ -80,7 +80,7 @@
          with). Caveat: the HOST itself can't reach the VM over macvtap (kernel
          limitation) — manage it via `virsh console`; other LAN machines are fine.
          @NIC@ = the host ethernet device (filled by the script; see `ip -br link`). -->
-    <interface type="direct">
+    <interface type="direct" trustGuestRxFilters="yes">
       <source dev="@NIC@" mode="bridge"/>
       <model type="virtio"/>
       <rom enabled="no"/>   <!-- no PXE option ROM (avoids needing ipxe-qemu's efi-virtio.rom) -->
