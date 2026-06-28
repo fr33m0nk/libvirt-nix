@@ -95,11 +95,10 @@
     enable = true;
     dnssec = "true";
     fallbackDns = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
-    extraConfig = ''
-      DNS=9.9.9.11#dns11.quad9.net
-      DNS=149.112.112.11#dns11.quad9.net
-      DNSOverTLS=yes
-    '';
+    settings = {
+      DNS = [ "9.9.9.11#dns11.quad9.net" "149.112.112.11#dns11.quad9.net" ];
+      DNSOverTLS = "yes";
+    };
   };
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
 
