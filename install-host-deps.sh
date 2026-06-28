@@ -68,6 +68,9 @@ add_nixconf "extra-substituters"         "extra-substituters = https://nix-commu
 add_nixconf "extra-trusted-public-keys"  "extra-trusted-public-keys = ${NIX_CACHIX_KEY}"
 sudo systemctl restart nix-daemon 2>/dev/null || true
 
+# Install cachix for binary cache push/pull
+nix profile install nixpkgs#cachix 2>/dev/null || echo "  cachix may already be installed"
+
 echo
 echo "Done. Next:"
 echo "  1) Log out and back in (applies the libvirt/kvm groups + loads Nix into your shell)."

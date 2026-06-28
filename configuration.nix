@@ -121,7 +121,7 @@
     libraries = with pkgs; [ stdenv.cc.cc.lib zlib fuse icu libsecret e2fsprogs ];
   };
   boot.kernel.sysctl = {
-    "fs.inotify.max_user_watches" = 524288;
+    "fs.inotify.max_user_watches" = 2524288;
     # The LAN advertises SLAAC IPv6 but it doesn't route out from this macvtap VM.
     # Emacs's url library prefers the AAAA address and then hangs (e.g. fetching the
     # GNU/nongnu ELPA archives), which silently broke the Spacemacs package install
