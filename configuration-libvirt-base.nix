@@ -35,6 +35,7 @@
   # Mirrors Lima's /mnt/nixos-config bind. The mount tag must match domain.xml's
   # <filesystem><target dir='nixos-config'/>. virtiofs needs shared memory in the
   # domain (memoryBacking access=shared) — handled in domain.xml.
+  boot.kernelModules = [ "virtiofs" ];
   fileSystems."/mnt/nixos-config" = {
     device = "nixos-config";
     fsType = "virtiofs";

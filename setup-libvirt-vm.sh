@@ -143,13 +143,25 @@ if $USE_BASE; then
       break
     fi
     if [ "$i" -eq 120 ]; then
-      echo "WARNING: Guest agent did not come up after 10 min. The VM may still be booting."
+      echo "WARNING: Guest agent did not come up after 10 min."
     fi
     sleep 5
   done
 
-  # Verify virtiofs share is visible inside the guest
-  echo "  Checking virtiofs mount..."
+  # The base image doesn't have the virtiofs mount yet — it only takes effect
+  # AFTER nixos-rebuild. Set it up manually so the flake is visible for the
+  # rebuild itself.
+  echo "  Setting up virtiofs share (base image doesn't have it yet)..."
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mkdir","arg":["-p","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' > /dev/null 2>&1 || true
+  sleep 1
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
+  sleep 1
+
+  # Verify the flake is now visible
   PID=$(virsh qemu-agent-command "$NAME" \
     '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ls","arg":["/mnt/nixos-config/flake.nix"],"capture-output":true}}' \
     | jq -r '.return.pid')
@@ -161,6 +173,10 @@ if $USE_BASE; then
       echo "  virtiofs share OK."
     else
       echo "  WARNING: virtiofs share not visible. Check domain.xml <filesystem> config."
+      echo "  You can still mount it manually from the console:"
+      echo "    sudo mkdir -p /mnt/nixos-config"
+      echo "    sudo modprobe virtiofs"
+      echo "    sudo mount -t virtiofs nixos-config /mnt/nixos-config"
     fi
   fi
 
