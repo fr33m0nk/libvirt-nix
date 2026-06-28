@@ -87,6 +87,20 @@
   ];
   networking.defaultGateway = "192.168.29.1";
   networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
+
+  # DNS-over-TLS via Quad9 secured ECS (encrypted, no ISP snooping).
+  # systemd-resolved handles the DoT protocol; /etc/resolv.conf points
+  # to the local stub resolver (127.0.0.53) which forwards via TLS.
+  services.resolved = {
+    enable = true;
+    dnssec = "true";
+    fallbackDns = [ "9.9.9.11" "149.112.112.11" ];
+    extraConfig = ''
+      DNS=9.9.9.11#dns11.quad9.net
+      DNS=149.112.112.11#dns11.quad9.net
+      DNSOverTLS=yes
+    '';
+  };
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
 
   systemd.services."home-manager-prashantsinha" = {
