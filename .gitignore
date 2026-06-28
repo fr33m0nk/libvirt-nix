@@ -8,3 +8,4 @@ ssh-authorized-key.pub
 result
 result-*
 *.qcow2
+.DS_Store
