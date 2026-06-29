@@ -45,6 +45,7 @@
    dotspacemacs-install-packages 'used-only))
 
 (defun dotspacemacs/init ()
+  (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
   (setq-default
    dotspacemacs-enable-emacs-pdumper nil
    dotspacemacs-gc-cons '(100000000 0.1)
