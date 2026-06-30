@@ -44,13 +44,7 @@
 
   # --- libvirt guest integration ------------------------------------------
   services.qemuGuest.enable = true;   # IP reporting, graceful shutdown via virsh
-  services.cloud-init.enable = true;  # kept from base image (NoCloud cidata ISO)
-  # Restrict to NoCloud only — the base image's default datasource list
-  # probes AWS/EC2/GCE metadata endpoints that don't exist, adding ~4 min
-  # to every boot with timeout spam on the console.
-  services.cloud-init.settings = {
-    datasource_list = [ "NoCloud" ];
-  };
+  services.cloud-init.enable = true;  # kept from base image; no-op without cidata ISO
 
   # --- User ---------------------------------------------------------------
   users.mutableUsers = true;
