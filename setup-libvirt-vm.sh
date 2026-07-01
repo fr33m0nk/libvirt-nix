@@ -208,6 +208,22 @@ if $USE_BASE; then
       "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$PID}}")
     if echo "$OUT" | jq -r '.return["out-data"] // ""' | base64 -d 2>/dev/null | grep -q flake; then
       echo "  virtiofs share OK."
+      # Verify binary cache is reachable for the upcoming rebuild
+      echo "  Checking cachix cache..."
+      CACHE_OK=$(virsh qemu-agent-command "$NAME" \
+        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/nix","arg":["store","ping","--store","https://fr33m0nk.cachix.org"],"capture-output":true}}' \
+        | jq -r '.return.pid')
+      if [ -n "$CACHE_OK" ] && [ "$CACHE_OK" != "null" ]; then
+        sleep 2
+        CACHE_STATUS=$(virsh qemu-agent-command "$NAME" \
+          "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$CACHE_OK}}" \
+          | jq -r '.return.exitcode // 1')
+        if [ "$CACHE_STATUS" = "0" ]; then
+          echo "  Cachix cache reachable — builds will use pre-built packages if available."
+        else
+          echo "  WARNING: Cachix cache unreachable. Builds will compile from source."
+        fi
+      fi
     else
       echo "  WARNING: virtiofs share not visible. Check domain.xml <filesystem> config."
       echo "  You can still mount it manually from the console:"
@@ -220,8 +236,12 @@ if $USE_BASE; then
   echo
   echo "=== Base image is booted. To apply the full dev toolchain: ==="
   echo ""
+  echo "  # First, verify the binary cache is reachable:"
   echo "  virsh console ${NAME}"
   echo "  # login as: nixos  /  password: nixos"
+  echo "  nix store ping --store https://fr33m0nk.cachix.org"
+  echo ""
+  echo "  # Then run the rebuild:"
   echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
