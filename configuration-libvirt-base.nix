@@ -157,19 +157,18 @@
     description = "Push new Nix store paths to fr33m0nk.cachix.org";
     after = [ "nix-daemon.service" "network-online.target" ];
     wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
     path = [ pkgs.cachix pkgs.bash ];
+    # Only run if the auth token exists on virtiofs
+    preStart = ''
+      [ -f /mnt/nixos-config/.cachix-token ] || exit 0
+    '';
     script = ''
-      set -euo pipefail
       TOKEN_FILE=/mnt/nixos-config/.cachix-token
       CACHE=fr33m0nk
-      if [ ! -f "$TOKEN_FILE" ]; then
-        echo "cachix-push: no .cachix-token on virtiofs, skipping push"
-        exit 0
-      fi
       if ! cachix authtoken check >/dev/null 2>&1; then
         cachix authtoken "$(cat "$TOKEN_FILE")"
       fi
-      # Push the current system closure + all its dependencies
       cachix push "$CACHE" /run/current-system
     '';
     serviceConfig = {
@@ -178,9 +177,7 @@
     };
   };
 
-  # Trigger cachix-push after a nix-daemon build reveals /run/current-system
-  # was updated (i.e., a nixos-rebuild switch completed successfully).
-  # The path unit watches the symlink target change.
+  # Also keep the path-based trigger for subsequent nixos-rebuild switches
   systemd.paths.cachix-push = {
     wantedBy = [ "multi-user.target" ];
     pathConfig = {
