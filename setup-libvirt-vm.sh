@@ -219,9 +219,24 @@ if $USE_BASE; then
           "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$CACHE_OK}}" \
           | jq -r '.return.exitcode // 1')
         if [ "$CACHE_STATUS" = "0" ]; then
-          echo "  Cachix cache reachable — builds will use pre-built packages if available."
+          echo "  Cachix cache reachable (reads) — builds will use pre-built packages if available."
         else
           echo "  WARNING: Cachix cache unreachable. Builds will compile from source."
+        fi
+      fi
+      # Check if push auth is set up (token file on virtiofs)
+      TOKEN_OK=$(virsh qemu-agent-command "$NAME" \
+        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/cachix","arg":["authtoken","check"],"capture-output":true}}' \
+        | jq -r '.return.pid')
+      if [ -n "$TOKEN_OK" ] && [ "$TOKEN_OK" != "null" ]; then
+        sleep 1
+        TOKEN_STATUS=$(virsh qemu-agent-command "$NAME" \
+          "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$TOKEN_OK}}" \
+          | jq -r '.return.exitcode // 1')
+        if [ "$TOKEN_STATUS" = "0" ]; then
+          echo "  Cachix push token present — built packages will be uploaded after rebuild."
+        else
+          echo "  WARNING: No Cachix push token. Place it at .cachix-token on virtiofs."
         fi
       fi
     else
@@ -239,10 +254,14 @@ if $USE_BASE; then
   echo "  # First, verify the binary cache is reachable:"
   echo "  virsh console ${NAME}"
   echo "  # login as: nixos  /  password: nixos"
-  echo "  nix store ping --store https://fr33m0nk.cachix.org"
+  echo "  nix store ping --store https://fr33m0nk.cachix.org   # verify cache reads"
+  echo "  cachix authtoken check                               # verify push token"
   echo ""
   echo "  # Then run the rebuild:"
   echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
+  echo ""
+  echo "  # After rebuild completes, push to cache (auto-push only fires on subsequent switches):"
+  echo "  sudo systemctl start cachix-push.service"
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
   echo "  After it completes, log out and back in as: prashantsinha"
@@ -259,6 +278,9 @@ echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
 echo
 if $USE_BASE; then
   echo "The base image was used — the dev toolchain is now applied via nixos-rebuild."
+  echo "After first rebuild, push built packages to cachix:"
+  echo "  sudo systemctl start cachix-push.service"
+  echo ""
   echo "Change config in place (state preserved):"
   echo "  ssh prashantsinha@<vm-ip>  then:"
   echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
