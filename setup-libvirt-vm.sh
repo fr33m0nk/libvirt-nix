@@ -211,7 +211,7 @@ if $USE_BASE; then
       # Verify binary cache is reachable for the upcoming rebuild
       echo "  Checking cachix cache..."
       CACHE_OK=$(virsh qemu-agent-command "$NAME" \
-        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/nix","arg":["store","ping","--store","https://fr33m0nk.cachix.org"],"capture-output":true}}' \
+        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/nix","arg":["store","info","--store","https://fr33m0nk.cachix.org"],"capture-output":true}}' \
         | jq -r '.return.pid')
       if [ -n "$CACHE_OK" ] && [ "$CACHE_OK" != "null" ]; then
         sleep 2
@@ -254,7 +254,7 @@ if $USE_BASE; then
   echo "  # First, verify the binary cache is reachable:"
   echo "  virsh console ${NAME}"
   echo "  # login as: nixos  /  password: nixos"
-  echo "  nix store ping --store https://fr33m0nk.cachix.org   # verify cache reads"
+  echo "  nix store info --store https://fr33m0nk.cachix.org     # verify cache reads"
   echo "  cachix authtoken check                               # verify push token"
   echo ""
   echo "  # Then run the rebuild (push to cachix auto-starts on completion):"
