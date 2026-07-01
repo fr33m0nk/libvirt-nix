@@ -44,6 +44,7 @@
     bat         # better `cat`              -> aliased below
     eza         # better `ls`               -> aliased below
     typos       # source-code spell checker -> binary: typos
+    cachix      # binary cache push/pull
     # zoxide (`z`) and yazi (`y`) come from their Home Manager modules below.
 
     # --- Emacs (master "32", nox) + Spacemacs + Clojure --------------------
@@ -106,6 +107,19 @@
     enable = true;
     enableGitIntegration = true;
   };
+
+  # Cachix binary cache: configure auth token and cache use from the
+  # gitignored file on virtiofs. Idempotent and non-fatal — skips
+  # silently if the token file is missing.
+  home.activation.configureCachix = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    TOKEN_FILE=/mnt/nixos-config/.cachix-token
+    if [ -f "$TOKEN_FILE" ]; then
+      if ! ${pkgs.cachix}/bin/cachix authtoken check >/dev/null 2>&1; then
+        cat "$TOKEN_FILE" | ${pkgs.cachix}/bin/cachix authtoken --stdin
+      fi
+      ${pkgs.cachix}/bin/cachix use fr33m0nk >/dev/null 2>&1 || true
+    fi
+  '';
 
   # Spacemacs (develop, pinned) cloned into a writable ~/.emacs.d. Idempotent
   # (skips if already present). NON-DESTRUCTIVE + NON-FATAL: clones to a temp dir
