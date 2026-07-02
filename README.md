@@ -182,9 +182,10 @@ The flake dir is virtiofs-shared at `/mnt/nixos-config`, so edit the `.nix` file
 the host and rebuild inside the VM:
 ```bash
 ssh ${NIXOS_USER:-username}@<vm-ip>
-sudo nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
+sudo NIXOS_USER=prashantsinha nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
 ```
-(`--impure` is required so Nix can read the `NIXOS_USER` environment variable.
+(`NIXOS_USER=` is passed inline — `sudo -E` doesn't forward custom variables on NixOS.
+`--impure` is required so Nix can read `NIXOS_USER` from the environment.
 `path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
 rebuild; a plain git flake ref would exclude it and the build would error.)
 Re-run `setup-libvirt-vm.sh` only to rebuild the base image from scratch (wipes VM
