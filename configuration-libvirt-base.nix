@@ -12,7 +12,6 @@
 #   - Keeps cloud-init enabled (base image has it)
 { config, pkgs, lib, modulesPath, userName, ... }:
 {
-{
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
 
   # --- Boot + disk (GRUB-EFI, matching the nixos-libvirt base image) ---------

@@ -9,7 +9,6 @@
 # confirm on first boot.
 { config, pkgs, lib, modulesPath, userName, ... }:
 {
-{
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
 
   # --- Boot + disk (standard UEFI NixOS) ----------------------------------
