@@ -96,7 +96,7 @@
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
   networking.defaultGateway = "192.168.29.1";
-  networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
+  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
 
   services.resolved = {
     enable = true;
@@ -105,7 +105,7 @@
         DNS = [ "9.9.9.11#dns11.quad9.net" "149.112.112.11#dns11.quad9.net" ];
         DNSOverTLS = "yes";
         DNSSEC = "true";
-        FallbackDNS = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
+        FallbackDNS = [ "9.9.9.11" "149.112.112.11" ];
       };
     };
   };
@@ -134,10 +134,9 @@
   };
   boot.kernel.sysctl = {
     "fs.inotify.max_user_watches" = 2524288;
-    # Accept Router Advertisements even with forwarding enabled — needed for
-    # SLAAC IPv6 on macvtap (the host NIC must also have trustGuestRxFilters).
-    "net.ipv6.conf.all.accept_ra" = 2;
-    "net.ipv6.conf.default.accept_ra" = 2;
+    # IPv6 resolves but doesn't route through this macvtap NIC.
+    "net.ipv6.conf.all.disable_ipv6" = 1;
+    "net.ipv6.conf.default.disable_ipv6" = 1;
   };
 
   # --- Memory headroom (zram + overflow swapfile) -------------------------
