@@ -12,16 +12,38 @@ Same Clojure/Emacs toolchain as `../nixos` (`home.nix` + `dot-spacemacs.el` are
 copied verbatim). The difference is all in the host/boot layer: **no Lima, no
 nixos-lima** — it's a plain NixOS guest plus a libvirt domain.
 
+## Prerequisites
+
+### Required: `NIXOS_USER` environment variable
+All scripts and the flake require `NIXOS_USER` to be set. This is the username
+created inside the VM — no default, no fallback. Set it in your shell profile:
+```bash
+export NIXOS_USER=prashantsinha
+```
+Without this, `nix build`, `nixos-rebuild`, and `./setup-libvirt-vm.sh` will
+exit with an error immediately.
+
+### Two build modes
+The flake supports two configurations:
+- **`libvirt-vm-aarch64`** — Full image built from scratch via `make-disk-image`
+  (systemd-boot). Use with `./setup-libvirt-vm.sh` (no `--base-image` flag).
+- **`libvirt-vm-aarch64-base`** — Targets the pre-built nixos-libvirt qcow2
+  (GRUB, `/dev/vda1` /boot). Use with `./setup-libvirt-vm.sh --base-image <qcow2>`.
+  This is the recommended path — skip the heavy image build, boot immediately.
+
 ## Files
 | File | Role |
 |---|---|
 | `flake.nix` | nixosConfigurations + a `qcow` image output (`make-disk-image`). Carries the heroku + tuned clojure-lsp overlays. |
-| `configuration.nix` | NixOS system: UEFI boot, user, sshd, DHCP, virtiofs mount, rootless docker, nix-ld, qemu-guest-agent. |
-| `home.nix`, `dot-spacemacs.el` | user toolchain (copied from `../nixos`, unchanged). |
+| `configuration.nix` | NixOS system (systemd-boot variant): user, sshd, DHCP, virtiofs, docker, nix-ld. |
+| `configuration-libvirt-base.nix` | NixOS system (GRUB variant): targets nixos-libvirt base image. Same packages, different boot layout. |
+| `home.nix`, `dot-spacemacs.el` | user toolchain (emacs-git-nox, clojure-lsp, docker, Spacemacs). |
 | `ssh-authorized-key.pub` | your SSH **public** key(s), read at build time — **gitignored** (create from `.example`). |
-| `domain.xml` | libvirt domain: **`<cputune>` 1:1 vcpupin**, host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent. `@PLACEHOLDERS@` filled by the script. |
-| `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/ipxe-qemu/…) + Nix + groups + nix.conf. |
-| `setup-libvirt-vm.sh` | build image → stage disk/nvram → fill template → `virsh define`/`start`. |
+| `domain.xml` | libvirt domain: **`<cputune>` 1:1 vcpupin**, host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
+| `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/cachix) + Nix + groups + nix.conf with Cachix substituters. |
+| `setup-libvirt-vm.sh` | Build or copy image → stage disk/nvram → fill template → `virsh define`/`start` → post-boot checks (virtiofs, Cachix cache reachability). |
+| `push-to-cache.sh` | Build the full system closure on the host and push to `fr33m0nk.cachix.org`. One-time 1-2 hour build. |
+| `.cachix-token` | Cachix auth token with write scope — **gitignored**, read by the VM via virtiofs for auto-push after rebuilds. |
 
 ## Prerequisites (host)
 
@@ -69,27 +91,56 @@ No host bridge needed — the default networking is **macvtap** onto the host NI
 bridge/NAT alternatives.
 
 ## First-time bring-up
-1. **Create `ssh-authorized-key.pub`** with your SSH *public* key (one per line) —
-   it's gitignored, kept out of the repo. The build **halts with an error** if it's
-   missing.
+
+### Base image mode (recommended — fast, no compilation)
+Uses the pre-built nixos-libvirt qcow2 as the boot disk. The VM boots in ~30s.
+Then `nixos-rebuild` applies the full dev toolchain (~1-2h on RK3588, one-time).
+
+0. **Set `NIXOS_USER`** (required, no default):
+   ```bash
+   export NIXOS_USER=prashantsinha
+   ```
+1. **Install host deps** (run once):
+   ```bash
+   cd libvirt-nix
+   ./install-host-deps.sh
+   # log out/in to apply groups + Nix profile
+   ```
+2. **Create `ssh-authorized-key.pub`** with your SSH *public* key (one per line) —
+   it's gitignored. The build **halts with an error** if missing.
    ```bash
    cp ssh-authorized-key.pub.example ssh-authorized-key.pub
-   # then paste your key, or on your laptop:  cat ~/.ssh/id_rsa.pub
    ```
-2. **Verify the core map** matches `domain.xml`'s `<cputune>`: `lscpu -e` (A76 ≈ 2.2–2.4 GHz). 1:1 across `0-7` is the requirement; the cpuset numbers just need to be every physical core.
-3. Run it — **no external `taskset`** (the script pins only the part that needs it):
+3. **Add your Cachix push token** (optional — enables binary cache uploads):
    ```bash
+   echo "<your-cachix-write-token>" > .cachix-token
+   ```
+4. **Run the setup** with a pre-built qcow2:
+   ```bash
+   ./setup-libvirt-vm.sh --base-image ../nixos-libvirt/release-v0.0.3-images/nixos-libvirt-v0.0.3-aarch64.qcow2
+   ```
+   The script: copies + resizes the qcow2 → boots the VM → sets up virtiofs /
+   verifies Cachix → prints `nixos-rebuild` instructions.
+5. **Follow the on-screen instructions** to `virsh console` in, verify Cachix,
+   and run `nixos-rebuild switch` (1-2h, one-time).
+6. **After rebuild**: built packages are auto-pushed to Cachix on subsequent
+   switches. For the first build, run manually:
+   ```bash
+   sudo systemctl start cachix-push.service
+   ```
+
+### Build-from-source mode
+Builds the qcow2 from scratch using `make-disk-image` (requires KVM).
+Slow but self-contained.
+
+1. **Verify the core map** matches `domain.xml`'s `<cputune>`: `lscpu -e`.
+2. Run it:
+   ```bash
+   export NIXOS_USER=prashantsinha
    cd libvirt-nix
    ./setup-libvirt-vm.sh
    ```
-   It builds in two phases: **(1)** compile the system closure on **all cores** (pure
-   CPU, no KVM), then **(2)** assemble the qcow under `taskset -c 4-7` — because
-   `make-disk-image` boots a brief internal KVM VM to install the bootloader, and a
-   floating-vCPU VM crashes on big.LITTLE. Only that short step is pinned, so you get
-   8-core speed for the heavy compile. (Override the pin cores with
-   `BUILD_PIN=4-7`; assumes single-user Nix — for a multi-user daemon, pin it via
-   `nix-daemon.service` `CPUAffinity=` instead.)
-4. Verify:
+3. Verify:
    ```bash
    virsh vcpupin lc-nix-libvirt              # 0->0 .. 7->7
    virsh console lc-nix-libvirt              # login, then: nproc → 8, df -h /
