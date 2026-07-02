@@ -131,5 +131,18 @@
       # convenience default
       packages.aarch64-linux.default = self.packages.aarch64-linux.qcow;
       packages.x86_64-linux.default  = self.packages.x86_64-linux.qcow;
+
+      # Heavy toolchain packages — built on CI and pushed to Cachix.
+      # Reference the base-image nixosConfiguration's pkgs to inherit
+      # the emacs-overlay, clojureLspOverlay, and herokuOverlay.
+      packages.aarch64-linux.emacs =
+        self.nixosConfigurations."libvirt-vm-aarch64-base".pkgs.emacs-git-nox;
+      packages.aarch64-linux.clojure-lsp =
+        self.nixosConfigurations."libvirt-vm-aarch64-base".pkgs.clojure-lsp;
+      packages.aarch64-linux.heroku =
+        self.nixosConfigurations."libvirt-vm-aarch64-base".pkgs.heroku;
+      # Toolchain meta-package: builds all three
+      packages.aarch64-linux.toolchain =
+        self.packages.aarch64-linux.emacs;
     };
 }
