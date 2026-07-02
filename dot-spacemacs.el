@@ -45,7 +45,6 @@
    dotspacemacs-install-packages 'used-only))
 
 (defun dotspacemacs/init ()
-  (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
   (setq-default
    dotspacemacs-enable-emacs-pdumper nil
    dotspacemacs-gc-cons '(100000000 0.1)
@@ -80,6 +79,11 @@
   (spacemacs/load-spacemacs-env))
 
 (defun dotspacemacs/user-init ()
+  (setq package-archives
+      '(("gnu"    . "https://raw.githubusercontent.com/d12frosted/elpa-mirror/master/gnu/")
+        ("nongnu" . "https://raw.githubusercontent.com/d12frosted/elpa-mirror/master/nongnu/")
+        ("melpa"  . "https://raw.githubusercontent.com/d12frosted/elpa-mirror/master/melpa/")))
+  (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
   ;; ghostel: auto-download the prebuilt native module on first use (no prompt).
   ;; The aarch64-linux prebuilt loads cleanly under nix-ld; no toolchain needed.
   (setq ghostel-module-auto-install 'download))
