@@ -229,7 +229,7 @@ if $USE_BASE; then
       fi
       # Check if push auth is set up (token file on virtiofs)
       TOKEN_OK=$(virsh qemu-agent-command "$NAME" \
-        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/cachix","arg":["authtoken","check"],"capture-output":true}}' \
+        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/test","arg":["-f","/mnt/nixos-config/.cachix-token"],"capture-output":true}}' \
         | jq -r '.return.pid')
       if [ -n "$TOKEN_OK" ] && [ "$TOKEN_OK" != "null" ]; then
         sleep 1
@@ -258,7 +258,7 @@ if $USE_BASE; then
   echo "  virsh console ${NAME}"
   echo "  # login as: nixos  /  password: nixos"
   echo "  nix store info --store https://fr33m0nk.cachix.org     # verify cache reads"
-  echo "  cachix authtoken check                               # verify push token"
+  echo "  test -f /mnt/nixos-config/.cachix-token && echo push-ready  # verify push token present"
   echo ""
   echo "  # Then run the rebuild:"
   echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-${ARCH}-base"
