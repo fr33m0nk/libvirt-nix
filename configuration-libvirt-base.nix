@@ -10,7 +10,12 @@
 #   - /boot = /dev/vda1 instead of /dev/disk/by-label/ESP
 #   - No boot.growPartition (base image doesn't need it)
 #   - Keeps cloud-init enabled (base image has it)
-{ config, pkgs, lib, modulesPath, ... }:
+{ config, pkgs, lib, modulesPath, userName, ... }:
+let
+  # Set via NIXOS_USER env var or default; pass --impure to nixos-rebuild
+  user = if userName != "" then userName else "prashantsinha";
+in
+{
 {
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
 
@@ -48,7 +53,7 @@
 
   # --- User ---------------------------------------------------------------
   users.mutableUsers = true;
-  users.users.prashantsinha = {
+  users.users.${user} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     linger = true;
@@ -98,7 +103,7 @@
   };
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
 
-  systemd.services."home-manager-prashantsinha" = {
+  systemd.services."home-manager-${user}" = {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
   };

@@ -120,11 +120,11 @@ else
   TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-${ARCH}.config.system.build.toplevel"
 
   echo ">>> [1/2] compiling system closure on all cores: ${TOPLEVEL}"
-  nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --no-link
+  nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --impure --no-link
 
   echo ">>> [2/2] assembling qcow (pinned to cores ${BUILD_PIN}): ${FLAKE}#packages.${ARCH}-linux.qcow"
   OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
-    --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
+    --extra-experimental-features "nix-command flakes" --impure --no-link --print-out-paths)"
   SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
   [ -n "$SRC_QCOW" ] || {
     echo "no .qcow2 in build output"
@@ -264,7 +264,7 @@ if $USE_BASE; then
   echo "  sudo systemctl start cachix-push.service"
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
-  echo "  After it completes, log out and back in as: prashantsinha"
+  echo "  After it completes, log out and back in as: ${NIXOS_USER:-prashantsinha}"
   echo "  The VM IP (for SSH from your laptop):"
   echo "    virsh domifaddr ${NAME} --source agent"
   echo "    # or from console: ip -br addr"
@@ -272,7 +272,7 @@ fi
 
 echo
 echo "Done. '${NAME}' is defined and running."
-echo "  console : virsh console ${NAME}        (login: prashantsinha)"
+echo "  console : virsh console ${NAME}        (login: ${NIXOS_USER:-prashantsinha})"
 echo "  pins    : virsh vcpupin ${NAME}        (expect 0->0 .. 7->7)"
 echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
 echo

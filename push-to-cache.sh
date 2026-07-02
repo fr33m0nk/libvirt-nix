@@ -40,6 +40,7 @@ TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-aarch64-base.config.system.bui
 echo ">>> Building: ${TOPLEVEL}"
 nix build "$TOPLEVEL" \
   --extra-experimental-features "nix-command flakes" \
+  --impure \
   --print-out-paths \
   --out-link result-toplevel
 

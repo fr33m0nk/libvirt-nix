@@ -63,8 +63,12 @@
 
       overlays = [ herokuOverlay clojureLspOverlay emacs-overlay.overlays.default ];
 
+      userName =
+        let v = builtins.getEnv "NIXOS_USER"; in if v == "" then "prashantsinha" else v;
+
       mkSystem = system: lib.nixosSystem {
         inherit system;
+        specialArgs = { inherit userName; };
         modules = [
           ./configuration.nix
           {
@@ -75,7 +79,7 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users.prashantsinha = import ./home.nix;
+            home-manager.users.${userName} = import ./home.nix;
           }
         ];
       };
@@ -84,6 +88,7 @@
       # Use this for `nixos-rebuild switch` after booting the pre-built qcow2.
       mkBaseSystem = system: lib.nixosSystem {
         inherit system;
+        specialArgs = { inherit userName; };
         modules = [
           ./configuration-libvirt-base.nix
           {
@@ -94,7 +99,7 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users.prashantsinha = import ./home.nix;
+            home-manager.users.${userName} = import ./home.nix;
           }
         ];
       };

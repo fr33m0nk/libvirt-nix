@@ -7,7 +7,11 @@
 # span both A76 + A55 clusters — the thing Lima/floating-vCPU could not do (the
 # CCSIDR "Failed to put registers after init" crash). VERIFY markers flag things to
 # confirm on first boot.
-{ config, pkgs, lib, modulesPath, ... }:
+{ config, pkgs, lib, modulesPath, userName, ... }:
+let
+  user = if userName != "" then userName else "prashantsinha";
+in
+{
 {
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
 
@@ -51,7 +55,7 @@
   # Plain NixOS user (no lima ".guest" home suffix). Rootless Docker needs the
   # subordinate id ranges + linger, same as the lima variant.
   users.mutableUsers = true;
-  users.users.prashantsinha = {
+  users.users.${user} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     linger = true;
@@ -116,7 +120,7 @@
   # first boot instead of being silently skipped. The static IP above makes
   # network-online reliable and early; together these fix the "plain GNU Emacs on
   # first boot" symptom.
-  systemd.services."home-manager-prashantsinha" = {
+  systemd.services."home-manager-${user}" = {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
   };
