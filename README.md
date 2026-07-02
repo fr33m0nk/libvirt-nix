@@ -181,10 +181,11 @@ use `virsh console` from the host; your laptop and other LAN machines are fine.
 The flake dir is virtiofs-shared at `/mnt/nixos-config`, so edit the `.nix` files on
 the host and rebuild inside the VM:
 ```bash
-ssh username@<vm-ip>
-sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64
+ssh ${NIXOS_USER:-username}@<vm-ip>
+sudo nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
 ```
-(`path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
+(`--impure` is required so Nix can read the `NIXOS_USER` environment variable.
+`path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
 rebuild; a plain git flake ref would exclude it and the build would error.)
 Re-run `setup-libvirt-vm.sh` only to rebuild the base image from scratch (wipes VM
 state — projects, ~/.emacs.d, docker images).
@@ -217,29 +218,44 @@ the Nix store; re-run `setup-libvirt-vm.sh` to recreate it fresh.
   a real LAN IP from your router, reachable from the laptop, with **no host bridge**
   — nothing for OpenMediaVault's network management to clash with. The script
   auto-detects the NIC (override `NIC=eth0 ./setup-libvirt-vm.sh`).
-  **Caveat:** the OMV host itself can't reach the VM over macvtap (kernel
+  **Caveat 1:** the OMV host itself can't reach the VM over macvtap (kernel
   limitation); other LAN machines can. Manage it from the host via `virsh console`.
+  **Caveat 2:** IPv6 is **permanently disabled** in the guest — it resolves AAAA
+  records but cannot route TCP through this macvtap (verified: `curl -6` fails
+  with "Network is unreachable" to all destinations). IPv4-only.
 - **Alternative A — host bridge** (host *can* reach the VM): create the bridge in the
   OMV web UI (Network → Interfaces → Bridge), then swap `domain.xml` to the
   `type='bridge'` block.
 - **Alternative B — libvirt NAT**: swap to the `network='default'` block and
   `virsh net-start default` (define it first if missing). Reach via host/portForward.
 
-## VERIFY checklist
-- `make-disk-image` arg names match this nixpkgs pin (if `nix build .#qcow`
-      errors on an unknown arg, check `<nixpkgs>/nixos/lib/make-disk-image.nix`).
+## Cachix binary cache
+Heavy packages (emacs, clojure-lsp native-image) are built on GitHub Actions
+(`nixos-libvirt` repo, `toolchain-cache` branch) and pushed to
+`https://fr33m0nk.cachix.org`. The VM's Nix config includes this cache as a
+substituter — `nixos-rebuild` will **download** pre-built binaries instead of
+compiling them (~5 min instead of 1-2 hours).
+
+First-time cache priming:
+```bash
+./push-to-cache.sh   # builds full closure on the host, pushes to Cachix
+```
+
+Subsequent rebuilds push automatically via `cachix-push.service` (runs after
+every `nixos-rebuild switch`). Requires `.cachix-token` with write scope on
+virtiofs (gitignored).
+
+## VERIFY checklist (build-from-source mode only)
+- `make-disk-image` arg names match this nixpkgs pin — if `nix build .#qcow`
+  errors, check `<nixpkgs>/nixos/lib/make-disk-image.nix`.
 - Disk labels: after first boot `lsblk -f` — root should be `nixos`, ESP `ESP`;
-      adjust `configuration.nix` `fileSystems` if make-disk-image used others.
+  adjust `configuration.nix` `fileSystems` if make-disk-image used others.
 - AAVMF paths exist (`/usr/share/AAVMF/AAVMF_{CODE,VARS}.fd`); the script falls
-      back to `qemu-efi-aarch64/QEMU_EFI.fd` (which may not split VARS — adjust).
-- macvtap NIC auto-detected correctly (`ip -br link`); the host won't be able to
-      SSH the VM over macvtap (use `virsh console`) — switch to an OMV bridge if you
-      need host→VM access.
-- static-IP interface name in `configuration.nix` (`enp2s0`) matches the guest
-      (`ip -br link`) and the IP/gateway/DNS suit your LAN — a wrong name leaves the
-      VM with no network (recover via `virsh console`).
-- vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`),
-      not just at idle — the register issue is at init, but confirm cross-cluster
-      scheduling doesn't wobble under real builds.
+  back to `qemu-efi-aarch64/QEMU_EFI.fd`.
+- macvtap NIC auto-detected correctly (`ip -br link`).
+- Static IP in `configuration.nix` (`enp2s0` at `192.168.29.45`) matches your
+  LAN — a wrong name leaves the VM with no network (recover via `virsh console`).
+- vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`).
 - qemu runs the disk OK from `/var/lib/libvirt/images` (avoid `$HOME` — the
-      `libvirt-qemu` user can't traverse a `700` home dir).
+  `libvirt-qemu` user can't traverse a `700` home dir).
+- Cachix: `nix store info --store https://fr33m0nk.cachix.org` from inside the VM.
