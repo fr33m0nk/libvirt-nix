@@ -174,28 +174,21 @@ the Nix store; re-run `setup-libvirt-vm.sh` to recreate it fresh.
 - **Alternative B — libvirt NAT**: swap to the `network='default'` block and
   `virsh net-start default` (define it first if missing). Reach via host/portForward.
 
-## VERIFY checklist (things I couldn't test from the dev machine)
-- [ ] `make-disk-image` arg names match this nixpkgs pin (if `nix build .#qcow`
+## VERIFY checklist
+- `make-disk-image` arg names match this nixpkgs pin (if `nix build .#qcow`
       errors on an unknown arg, check `<nixpkgs>/nixos/lib/make-disk-image.nix`).
-- [ ] Disk labels: after first boot `lsblk -f` — root should be `nixos`, ESP `ESP`;
+- Disk labels: after first boot `lsblk -f` — root should be `nixos`, ESP `ESP`;
       adjust `configuration.nix` `fileSystems` if make-disk-image used others.
-- [ ] AAVMF paths exist (`/usr/share/AAVMF/AAVMF_{CODE,VARS}.fd`); the script falls
+- AAVMF paths exist (`/usr/share/AAVMF/AAVMF_{CODE,VARS}.fd`); the script falls
       back to `qemu-efi-aarch64/QEMU_EFI.fd` (which may not split VARS — adjust).
-- [ ] macvtap NIC auto-detected correctly (`ip -br link`); the host won't be able to
+- macvtap NIC auto-detected correctly (`ip -br link`); the host won't be able to
       SSH the VM over macvtap (use `virsh console`) — switch to an OMV bridge if you
       need host→VM access.
-- [ ] static-IP interface name in `configuration.nix` (`enp2s0`) matches the guest
+- static-IP interface name in `configuration.nix` (`enp2s0`) matches the guest
       (`ip -br link`) and the IP/gateway/DNS suit your LAN — a wrong name leaves the
       VM with no network (recover via `virsh console`).
-- [ ] vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`),
+- vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`),
       not just at idle — the register issue is at init, but confirm cross-cluster
       scheduling doesn't wobble under real builds.
-- [ ] qemu runs the disk OK from `/var/lib/libvirt/images` (avoid `$HOME` — the
+- qemu runs the disk OK from `/var/lib/libvirt/images` (avoid `$HOME` — the
       `libvirt-qemu` user can't traverse a `700` home dir).
-
-## What's gained vs the Lima variant
-- All 8 cores in one VM (vs Lima's single-cluster `taskset -c 4-7`).
-- No lima-guestagent → the host↔guest version-mismatch problem disappears.
-- macvtap NIC → real LAN IP, no port-forward gymnastics, no host bridge to build.
-- Trade-off: you maintain the libvirt domain + image build yourself instead of
-  Lima's one-command lifecycle.
