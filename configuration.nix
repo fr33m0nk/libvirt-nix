@@ -8,9 +8,6 @@
 # CCSIDR "Failed to put registers after init" crash). VERIFY markers flag things to
 # confirm on first boot.
 { config, pkgs, lib, modulesPath, userName, ... }:
-let
-  user = if userName != "" then userName else "prashantsinha";
-in
 {
 {
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
@@ -55,7 +52,7 @@ in
   # Plain NixOS user (no lima ".guest" home suffix). Rootless Docker needs the
   # subordinate id ranges + linger, same as the lima variant.
   users.mutableUsers = true;
-  users.users.${user} = {
+  users.users.${userName} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     linger = true;
@@ -120,7 +117,7 @@ in
   # first boot instead of being silently skipped. The static IP above makes
   # network-online reliable and early; together these fix the "plain GNU Emacs on
   # first boot" symptom.
-  systemd.services."home-manager-${user}" = {
+  systemd.services."home-manager-${userName}" = {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
   };

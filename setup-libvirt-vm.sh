@@ -27,6 +27,9 @@
 
 set -euo pipefail
 
+# ---- required env vars ----------------------------------------------------
+: "${NIXOS_USER:?NIXOS_USER environment variable is required. Set it to your username.}"
+
 # ---- config (edit to taste) ------------------------------------------------
 NAME="lc-nix-libvirt"
 ARCH="$(uname -m)" # aarch64 | x86_64
@@ -264,7 +267,7 @@ if $USE_BASE; then
   echo "  sudo systemctl start cachix-push.service"
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
-  echo "  After it completes, log out and back in as: ${NIXOS_USER:-prashantsinha}"
+  echo "  After it completes, log out and back in as: ${NIXOS_USER}"
   echo "  The VM IP (for SSH from your laptop):"
   echo "    virsh domifaddr ${NAME} --source agent"
   echo "    # or from console: ip -br addr"
@@ -272,7 +275,7 @@ fi
 
 echo
 echo "Done. '${NAME}' is defined and running."
-echo "  console : virsh console ${NAME}        (login: ${NIXOS_USER:-prashantsinha})"
+echo "  console : virsh console ${NAME}        (login: ${NIXOS_USER})"
 echo "  pins    : virsh vcpupin ${NAME}        (expect 0->0 .. 7->7)"
 echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
 echo

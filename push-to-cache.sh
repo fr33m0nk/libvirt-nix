@@ -14,6 +14,8 @@
 # Run on the RK3588 host (not inside a VM) to use all 8 cores.
 set -euo pipefail
 
+: "${NIXOS_USER:?NIXOS_USER environment variable is required. Set it to your username.}"
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CACHE="fr33m0nk"
 FLAKE="path:${HERE}"

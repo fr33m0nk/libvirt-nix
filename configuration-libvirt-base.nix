@@ -11,10 +11,6 @@
 #   - No boot.growPartition (base image doesn't need it)
 #   - Keeps cloud-init enabled (base image has it)
 { config, pkgs, lib, modulesPath, userName, ... }:
-let
-  # Set via NIXOS_USER env var or default; pass --impure to nixos-rebuild
-  user = if userName != "" then userName else "prashantsinha";
-in
 {
 {
   imports = [ (modulesPath + "/profiles/qemu-guest.nix") ];
@@ -53,7 +49,7 @@ in
 
   # --- User ---------------------------------------------------------------
   users.mutableUsers = true;
-  users.users.${user} = {
+  users.users.${userName} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     linger = true;
@@ -103,7 +99,7 @@ in
   };
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
 
-  systemd.services."home-manager-${user}" = {
+  systemd.services."home-manager-${userName}" = {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
   };
