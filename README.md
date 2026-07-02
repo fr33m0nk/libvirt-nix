@@ -100,7 +100,7 @@ bridge/NAT alternatives.
 `configuration.nix` assigns a **static IP** (default `192.168.29.45` on `enp2s0`,
 gateway `192.168.29.1`, DNS `192.168.29.240`), so you normally just:
 ```bash
-ssh prashantsinha@192.168.29.45
+ssh username@192.168.29.45
 ```
 **Adjust those values for your LAN** (IP/gateway/DNS, and the interface name if the
 NIC enumerates differently — `ip -br link`). If you'd rather use DHCP, set
@@ -115,13 +115,13 @@ virsh domifaddr lc-nix-libvirt --source arp     # via the host ARP table (fallba
 ```
 Most reliable — read it from inside the guest via the console:
 ```bash
-virsh console lc-nix-libvirt        # login as prashantsinha
+virsh console lc-nix-libvirt        # login as username
 ip -br addr                         # shows the interface + its 192.168.x.x LAN IP
 #   leave console: Ctrl + ]
 ```
 Then SSH from your Mac (your default key is already authorized):
 ```bash
-ssh prashantsinha@<that-ip>
+ssh username@<that-ip>
 ```
 Note: the **OMV host itself can't** SSH the VM over macvtap (kernel limitation) —
 use `virsh console` from the host; your laptop and other LAN machines are fine.
@@ -130,7 +130,7 @@ use `virsh console` from the host; your laptop and other LAN machines are fine.
 The flake dir is virtiofs-shared at `/mnt/nixos-config`, so edit the `.nix` files on
 the host and rebuild inside the VM:
 ```bash
-ssh prashantsinha@<vm-ip>
+ssh username@<vm-ip>
 sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64
 ```
 (`path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
