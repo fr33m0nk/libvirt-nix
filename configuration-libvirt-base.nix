@@ -83,8 +83,8 @@
   # networking.interfaces.enp2s0.ipv4.addresses = [
   #   { address = "192.168.29.45"; prefixLength = 24; }
   # ];
-  # Cloudflare DNS (1.1.1.1). Quad9 ECS (9.9.9.11) is blocked by this ISP.
-  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
+  # DNS — DHCP-provided by default, but we use Quad9 for malware blocking + DNSSEC
+  networking.nameservers = [ "9.9.9.9" "149.112.112.112" "2620:fe::fe" "2620:fe::9" ];
 
   # Plain DNS (not DoT) — systemd-resolved DoT was causing resolution failures
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
