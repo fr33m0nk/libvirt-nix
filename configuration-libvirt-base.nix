@@ -157,9 +157,7 @@
         echo "cachix-push: no .cachix-token on virtiofs, skipping push"
         exit 0
       fi
-      if ! cachix authtoken check >/dev/null 2>&1; then
-        cat "$TOKEN_FILE" | cachix authtoken --stdin
-      fi
+      cat "$TOKEN_FILE" | cachix authtoken --stdin
       cachix push "$CACHE" /run/current-system
     '';
     serviceConfig = {
