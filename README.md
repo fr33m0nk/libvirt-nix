@@ -178,7 +178,7 @@ the host and rebuild inside the VM.
 **Home-manager only** (dot-spacemacs.el, shell aliases, home packages):
 ```bash
 ssh ${NIXOS_USER:-username}@<vm-ip>
-home-manager switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
+NIXOS_USER=prashantsinha home-manager switch --impure --flake path:/mnt/nixos-config#prashantsinha@libvirt-vm-aarch64-base
 ```
 Seconds — only rebuilds the user environment.
 
