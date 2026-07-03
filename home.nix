@@ -64,6 +64,7 @@
     # which auto-downloads a prebuilt aarch64-linux native module (loads under
     # nix-ld; no cmake/gcc/libtool needed).
     imagemagick                  # kitty-graphics: image dimension probe + non-PNG -> PNG
+    gnutls                      # TLS for Emacs (package.el, ELPA/MELPA)
   ];
 
   home.sessionVariables = {
