@@ -99,6 +99,7 @@
   #   { address = "192.168.29.45"; prefixLength = 24; }
   # ];
   # Cloudflare DNS (1.1.1.1).
+  networking.nameservers = [ "9.9.9.11" "149.112.112.11" ];
   networking.firewall.allowedTCPPorts = [ 22 3450 ];   # ssh + the app port
 
   # Run home-manager activation only AFTER the network is online, so the Spacemacs
