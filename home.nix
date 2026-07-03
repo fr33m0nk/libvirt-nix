@@ -45,7 +45,10 @@
     eza         # better `ls`               -> aliased below
     typos       # source-code spell checker -> binary: typos
     cachix      # binary cache push/pull
-    home-manager # CLI (from flake input, not nixpkgs — no emacs dep)
+    # home-manager CLI comes from `programs.home-manager.enable = true` below
+    # (the flake-input build). Do NOT also list it here — `with pkgs` resolves
+    # to the nixpkgs build, and the two collide in buildEnv on the fish
+    # completion file.
     # zoxide (`z`) and yazi (`y`) come from their Home Manager modules below.
 
     # --- Emacs (master "32", nox) + Spacemacs + Clojure --------------------
