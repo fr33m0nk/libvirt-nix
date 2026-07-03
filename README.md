@@ -179,15 +179,25 @@ use `virsh console` from the host; your laptop and other LAN machines are fine.
 
 ## Changing config later (in place — state preserved)
 The flake dir is virtiofs-shared at `/mnt/nixos-config`, so edit the `.nix` files on
-the host and rebuild inside the VM:
+the host and rebuild inside the VM.
+
+**Home-manager only** (dot-spacemacs.el, shell aliases, home packages):
+```bash
+ssh ${NIXOS_USER:-username}@<vm-ip>
+home-manager switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
+```
+Seconds — only rebuilds the user environment.
+
+**Full system rebuild** (configuration.nix, new packages, kernel changes):
 ```bash
 ssh ${NIXOS_USER:-username}@<vm-ip>
 sudo NIXOS_USER=prashantsinha nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
 ```
+Fast when packages are cached via Cachix.
 (`NIXOS_USER=` is passed inline — `sudo -E` doesn't forward custom variables on NixOS.
 `--impure` is required so Nix can read `NIXOS_USER` from the environment.
 `path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
-rebuild; a plain git flake ref would exclude it and the build would error.)
+rebuild.)
 Re-run `setup-libvirt-vm.sh` only to rebuild the base image from scratch (wipes VM
 state — projects, ~/.emacs.d, docker images).
 
