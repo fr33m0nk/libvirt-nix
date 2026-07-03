@@ -79,6 +79,10 @@
   networking.interfaces.enp2s0.ipv4.addresses = [
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
+  # Enable IPv6 SLAAC (auto-configuration via Router Advertisements).
+  # Required because static IPv4 config otherwise suppresses IPv6.
+  networking.interfaces.enp2s0.ipv6.addresses = [ { address = "::"; prefixLength = 64; } ];
+  systemd.network.networks."enp2s0".networkConfig.IPv6AcceptRA = true;
   networking.defaultGateway = "192.168.29.1";
   networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
 
