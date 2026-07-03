@@ -269,6 +269,7 @@ if $USE_BASE; then
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
   echo "  After it completes, log out and back in as: ${NIXOS_USER}"
+  echo "  (or run:  exec bash -l  to reload the shell with new aliases)"
   echo "  The VM IP (for SSH from your laptop):"
   echo "    virsh domifaddr ${NAME} --source agent"
   echo "    # or from console: ip -br addr"
