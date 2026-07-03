@@ -2,7 +2,7 @@
 # flake.nix). Same user toolchain as the Ubuntu variant's home.nix, minus the
 # things NixOS already handles (no nix-daemon.sh sourcing — NixOS sets PATH;
 # no /etc/environment PATH hack — NixOS puts user packages on PATH everywhere).
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, hmPackage, ... }:
 {
   home.stateVersion = "26.05";
 
@@ -45,10 +45,9 @@
     eza         # better `ls`               -> aliased below
     typos       # source-code spell checker -> binary: typos
     cachix      # binary cache push/pull
-    # home-manager CLI comes from `programs.home-manager.enable = true` below
-    # (the flake-input build). Do NOT also list it here — `with pkgs` resolves
-    # to the nixpkgs build, and the two collide in buildEnv on the fish
-    # completion file.
+    hmPackage   # home-manager CLI (flake-input build, passed via extraSpecialArgs
+                # in flake.nix). NOT `pkgs.home-manager` — the nixpkgs build collides
+                # with the flake-input one in the standalone `home-manager switch` path.
     # zoxide (`z`) and yazi (`y`) come from their Home Manager modules below.
 
     # --- Emacs (master "32", nox) + Spacemacs + Clojure --------------------
@@ -170,5 +169,9 @@
     enableBashIntegration = true;
   };
 
-  programs.home-manager.enable = true;
+  # CLI is installed via `hmPackage` in home.packages above (flake-input build).
+  # Leaving this false avoids a second, differently-built home-manager landing in
+  # the profile on the standalone `home-manager switch` path (buildEnv conflict).
+  # The NixOS-module path never installed the CLI from this option anyway.
+  programs.home-manager.enable = false;
 }

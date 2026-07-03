@@ -80,6 +80,10 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            # Pass the flake-input home-manager CLI to home.nix. The NixOS module
+            # does NOT install the CLI on its own, and `pkgs.home-manager` (nixpkgs)
+            # would collide with the flake-input build in the standalone path.
+            home-manager.extraSpecialArgs = { hmPackage = home-manager.packages.${system}.home-manager; };
             home-manager.users.${userName} = import ./home.nix;
           }
         ];
@@ -100,6 +104,9 @@
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
+            # See mkSystem: the module doesn't ship the CLI; hand home.nix the
+            # flake-input build so it matches the standalone path (no buildEnv clash).
+            home-manager.extraSpecialArgs = { hmPackage = home-manager.packages.${system}.home-manager; };
             home-manager.users.${userName} = import ./home.nix;
           }
         ];
@@ -140,6 +147,8 @@
             config.allowUnfreePredicate = unfreePredicate;
             overlays = overlays;
           };
+          # Same flake-input CLI as the NixOS-module path (see mkSystem).
+          extraSpecialArgs = { hmPackage = home-manager.packages.aarch64-linux.home-manager; };
           # Standalone HM needs username/homeDirectory set explicitly. As a NixOS
           # module these are auto-injected from the system user, so home.nix omits
           # them — supply them here for the `home-manager switch` path.
