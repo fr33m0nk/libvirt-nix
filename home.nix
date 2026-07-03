@@ -67,6 +67,15 @@
     gnutls                      # TLS for Emacs (package.el, ELPA/MELPA)
   ];
 
+  # --- Emacs daemon (systemd user service) ----------------------------------
+  # Starts emacs --fg-daemon at login. Connect with:
+  #   et         → emacsclient -t
+  #   eat        → emacsclient -t -a '' (start daemon if not running)
+  services.emacs = {
+    enable = true;
+    startWithUserSession = true;
+    socketActivation.enable = true;
+  };
   home.sessionVariables = {
     JAVA_HOME = "${pkgs.graalvmPackages.graalvm-ce}";
     EDITOR = "emacs";   # use with: emacs -nw
@@ -86,6 +95,9 @@
       # re-emits the full payload on every scroll). Safe here — this VM is only
       # ever driven from WezTerm.
       alias emacs='TERM=xterm-direct TERM_PROGRAM=WezTerm emacs -nw'
+      # Emacs daemon client shortcuts
+      alias et='emacsclient -t'
+      alias eat='emacsclient -t -a ""'
       # Rust CLI replacements (interactive shells only; scripts use real ls/cat).
       alias ls='eza --group-directories-first'
       alias ll='eza -lah --group-directories-first'
