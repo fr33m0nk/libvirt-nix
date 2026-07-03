@@ -22,6 +22,12 @@
   </memoryBacking>
 
   <vcpu placement="static">8</vcpu>
+
+  <!-- One dedicated IOThread so virtio-blk completion handling runs on its own
+       thread (pinned to the A55 cluster below) instead of stealing cycles from the
+       pinned vCPU threads. -->
+  <iothreads>1</iothreads>
+
   <cputune>
     <vcpupin vcpu="0" cpuset="0"/>
     <vcpupin vcpu="1" cpuset="1"/>
@@ -33,6 +39,19 @@
     <vcpupin vcpu="7" cpuset="7"/>
     <!-- keep QEMU's own IO/emulator threads on the little cores -->
     <emulatorpin cpuset="0-3"/>
+    <!-- block-IO thread also on the little (A55) cluster; it's mostly idle, so
+         sharing 0-3 with the emulator + vCPU0-3 is fine. Referenced by the disk
+         <driver iothread="1"> below. -->
+    <iothreadpin iothread="1" cpuset="0-3"/>
+    <!-- Real-time scheduling for the A76 (big) vCPUs to cut scheduling jitter.
+         SAFETY: there is NO host-side core isolation (isolcpus/cpuset) here, so
+         these FIFO vCPUs at 100% could starve host housekeeping on cpu4-7. This
+         relies on the kernel default RT throttle (kernel.sched_rt_runtime_us=950000
+         → 95% cap, 5% always reserved for the host); do NOT set it to -1. priority=1
+         is the lowest RT priority on purpose. If the host shows watchdog stalls
+         under guest load, remove this line first. Needs CAP_SYS_NICE, which
+         qemu:///system normally has — if define/start fails here, that's why. -->
+    <vcpusched vcpus="4-7" scheduler="fifo" priority="1"/>
   </cputune>
 
   <os>
@@ -48,8 +67,19 @@
     <gic version="3"/>
   </features>
 
-  <!-- -cpu host: pass the physical core through. Required for the big.LITTLE test. -->
-  <cpu mode="host-passthrough" check="none"/>
+  <!-- -cpu host: pass the physical core through. Required for the big.LITTLE test.
+       The <topology> models the physical 2×4 cluster layout so the guest scheduler
+       gets a cluster scheduling domain aligned with A55 (cpu0-3) / A76 (cpu4-7).
+       sockets×cores×threads must stay = 8 (matches <vcpu>8 and the 8 vcpupins).
+       NOTE: QEMU 'virt' + host-passthrough does NOT pass ARM capacity-dmips-mhz, so
+       the guest won't do full capacity-aware/EAS placement — but with 1:1 pinning
+       vCPU4-7 consistently report the A76 MIDR and vCPU0-3 the A55 MIDR, so the guest
+       can still tell them apart; the topology just gives the right grouping.
+       'clusters' needs qemu ≥ 7.0 / libvirt ≥ 7.10 — if `virsh define` rejects it,
+       fall back to: <topology sockets="2" cores="4" threads="1"/> -->
+  <cpu mode="host-passthrough" check="none">
+    <topology sockets="1" clusters="2" cores="4" threads="1"/>
+  </cpu>
 
   <clock offset="utc"/>
   <on_poweroff>destroy</on_poweroff>
@@ -61,7 +91,7 @@
 
     <!-- Root disk: the qcow2 built by `nix build .#qcow`, staged + resized. -->
     <disk type="file" device="disk">
-      <driver name="qemu" type="qcow2" discard="unmap"/>
+      <driver name="qemu" type="qcow2" discard="unmap" iothread="1"/>
       <source file="@DISK@"/>
       <target dev="vda" bus="virtio"/>
     </disk>
