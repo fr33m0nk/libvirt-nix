@@ -145,32 +145,26 @@ Slow but self-contained.
    virsh vcpupin lc-nix-libvirt              # 0->0 .. 7->7
    virsh console lc-nix-libvirt              # login, then: nproc → 8, df -h /
    virsh domifaddr lc-nix-libvirt --source agent   # the LAN IP (see below)
-   ```
-
 ## Finding the VM's IP (to SSH from your laptop)
-`configuration.nix` assigns a **static IP** (default `192.168.29.45` on `enp2s0`,
-gateway `192.168.29.1`, DNS `192.168.29.240`), so you normally just:
-```bash
-ssh username@192.168.29.45
-```
-**Adjust those values for your LAN** (IP/gateway/DNS, and the interface name if the
-NIC enumerates differently — `ip -br link`). If you'd rather use DHCP, set
-`networking.useDHCP = true` and drop the static block; then discover the address —
-with **macvtap** the lease comes from your router, so libvirt's default
-`--source lease` shows **nothing**, and you use the guest agent or host ARP table:
+The VM uses **DHCP**, so the IP comes from your router. Static IP was not
+possible — it broke IPv6 SLAAC on this macvtap setup. Find the address:
 ```bash
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
-virsh domifaddr lc-nix-libvirt --source agent   # via qemu-guest-agent (needs VM booted + agent up)
-virsh domifaddr lc-nix-libvirt --source arp     # via the host ARP table (fallback)
+virsh domifaddr lc-nix-libvirt --source agent   # via qemu-guest-agent
+virsh domifaddr lc-nix-libvirt --source arp     # via host ARP table (fallback)
 ```
-Most reliable — read it from inside the guest via the console:
+or from inside the guest via console:
 ```bash
-virsh console lc-nix-libvirt        # login as username
-ip -br addr                         # shows the interface + its 192.168.x.x LAN IP
-#   leave console: Ctrl + ]
+virsh console lc-nix-libvirt        # login as your user
+ip -br addr                         # shows the LAN IP
 ```
-Then SSH from your Mac (your default key is already authorized):
+Then SSH from your laptop:
+```bash
+ssh username@<that-ip>
+```
+For a **fixed IP**, configure a static DHCP lease on your router.
+Static IP config is preserved in comments in the config files.
 ```bash
 ssh username@<that-ip>
 ```
@@ -264,8 +258,6 @@ virtiofs (gitignored).
 - AAVMF paths exist (`/usr/share/AAVMF/AAVMF_{CODE,VARS}.fd`); the script falls
   back to `qemu-efi-aarch64/QEMU_EFI.fd`.
 - macvtap NIC auto-detected correctly (`ip -br link`).
-- Static IP in `configuration.nix` (`enp2s0` at `192.168.29.45`) matches your
-  LAN — a wrong name leaves the VM with no network (recover via `virsh console`).
 - vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`).
 - qemu runs the disk OK from `/var/lib/libvirt/images` (avoid `$HOME` — the
   `libvirt-qemu` user can't traverse a `700` home dir).

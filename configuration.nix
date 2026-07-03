@@ -91,17 +91,13 @@
   # something other than enp2s0; if the static config is wrong you can still get in
   # via `virsh console lc-nix-libvirt`.
   networking.hostName = "lc-nix-libvirt";
-  networking.useDHCP = false;
-  networking.interfaces.enp2s0.ipv4.addresses = [
-    { address = "192.168.29.45"; prefixLength = 24; }
-  ];
-  systemd.network.networks."enp2s0" = {
-    networkConfig = {
-      IPv6AcceptRA = true;
-      LinkLocalAddressing = "ipv6";
-    };
-  };
-  networking.defaultGateway = "192.168.29.1";
+  # DHCP — IPv6 SLAAC works reliably with DHCP.
+  networking.useDHCP = true;
+  # Static-IP alternative (breaks IPv6 SLAAC on this macvtap setup):
+  # networking.useDHCP = false;
+  # networking.interfaces.enp2s0.ipv4.addresses = [
+  #   { address = "192.168.29.45"; prefixLength = 24; }
+  # ];
   networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
 
   services.resolved = {
