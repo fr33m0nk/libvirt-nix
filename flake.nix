@@ -132,6 +132,18 @@
         "libvirt-vm-x86_64-base"   = mkBaseSystem "x86_64-linux";
       };
 
+      # Standalone home-manager configurations (for quick home.nix changes)
+      homeConfigurations = {
+        "${userName}@libvirt-vm-aarch64-base" = home-manager.lib.homeManagerConfiguration {
+          pkgs = import nixpkgs {
+            system = "aarch64-linux";
+            config.allowUnfreePredicate = unfreePredicate;
+            overlays = overlays;
+          };
+          modules = [ ./home.nix ];
+        };
+      };
+
       packages.aarch64-linux.qcow = mkImage "aarch64-linux";
       packages.x86_64-linux.qcow  = mkImage "x86_64-linux";
       # convenience default
