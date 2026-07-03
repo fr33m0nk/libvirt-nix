@@ -158,7 +158,7 @@
         exit 0
       fi
       if ! cachix authtoken check >/dev/null 2>&1; then
-        cachix authtoken "$(cat "$TOKEN_FILE")"
+        cat "$TOKEN_FILE" | cachix authtoken --stdin
       fi
       cachix push "$CACHE" /run/current-system
     '';
