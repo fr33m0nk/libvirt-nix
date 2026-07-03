@@ -76,12 +76,16 @@
   # --- Networking ---------------------------------------------------------
   networking.hostName = "lc-nix-libvirt";
   networking.useDHCP = false;
+  # Static IPv4. IPv6 SLAAC is enabled via systemd.network below.
   networking.interfaces.enp2s0.ipv4.addresses = [
     { address = "192.168.29.45"; prefixLength = 24; }
   ];
-  # Enable IPv6 SLAAC (auto-configuration via Router Advertisements).
-  # Static IPv4 suppresses IPv6 unless explicitly re-enabled.
-  systemd.network.networks."enp2s0".networkConfig.IPv6AcceptRA = true;
+  systemd.network.networks."enp2s0" = {
+    networkConfig = {
+      IPv6AcceptRA = true;
+      LinkLocalAddressing = "ipv6";
+    };
+  };
   networking.defaultGateway = "192.168.29.1";
   networking.nameservers = [ "9.9.9.11" "149.112.112.11" "2620:fe::11" "2620:fe::fe:11" ];
 
