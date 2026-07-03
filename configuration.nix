@@ -98,7 +98,7 @@
   # networking.interfaces.enp2s0.ipv4.addresses = [
   #   { address = "192.168.29.45"; prefixLength = 24; }
   # ];
-  # Use DHCP-provided DNS
+  # Cloudflare DNS (1.1.1.1).
   networking.firewall.allowedTCPPorts = [ 22 3450 ];   # ssh + the app port
 
   # Run home-manager activation only AFTER the network is online, so the Spacemacs
