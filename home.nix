@@ -75,9 +75,8 @@
   services.emacs = {
     enable = true;
     startWithUserSession = true;
-    socketActivation.enable = true;
-    package = pkgs.emacs-git-nox;  # use the overlay build, not pkgs.emacs (30.2)
-  };
+    socketActivation.enable = false;  # start daemon immediately at login
+    package = pkgs.emacs-git-nox;      # use the overlay build, not pkgs.emacs (30.2)
   home.sessionVariables = {
     JAVA_HOME = "${pkgs.graalvmPackages.graalvm-ce}";
     EDITOR = "emacs";   # use with: emacs -nw
