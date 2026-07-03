@@ -39,7 +39,7 @@ The flake supports two configurations:
 | `configuration-libvirt-base.nix` | NixOS system (GRUB variant): targets nixos-libvirt base image. Same packages, different boot layout. |
 | `home.nix`, `dot-spacemacs.el` | user toolchain (emacs-git-nox, clojure-lsp, docker, Spacemacs). |
 | `ssh-authorized-key.pub` | your SSH **public** key(s), read at build time — **gitignored** (create from `.example`). |
-| `domain.xml` | libvirt domain: **`<cputune>` 1:1 vcpupin** (+ dedicated IOThread on A55, FIFO `vcpusched` for the A76 cluster, 2-cluster CPU topology), host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
+| `domain.xml` | libvirt domain: **`<cputune>` 1:1 vcpupin** (+ dedicated IOThread on A55, 2-cluster CPU topology; FIFO `vcpusched` for A76 is present but commented out — cgroup v2 forbids it here), host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
 | `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/cachix) + Nix + groups + nix.conf with Cachix substituters. |
 | `setup-libvirt-vm.sh` | Build or copy image → stage disk/nvram → fill template → `virsh define`/`start` → post-boot checks (virtiofs, Cachix cache reachability). |
 | `push-to-cache.sh` | Build the full system closure on the host and push to `fr33m0nk.cachix.org`. One-time 1-2 hour build. |
@@ -144,7 +144,6 @@ Slow but self-contained.
    ```bash
    virsh vcpupin lc-nix-libvirt              # 0->0 .. 7->7
    virsh iothreadinfo lc-nix-libvirt        # iothread 1 pinned to 0-3
-   ps -eLo tid,cls,rtprio,psr,comm | grep qemu   # A76 vCPU threads: cls FF, rtprio 1, psr 4-7
    virsh console lc-nix-libvirt              # login, then: nproc → 8, df -h /
    virsh domifaddr lc-nix-libvirt --source agent   # the LAN IP (see below)
 ## Finding the VM's IP (to SSH from your laptop)

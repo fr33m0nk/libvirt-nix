@@ -43,15 +43,17 @@
          sharing 0-3 with the emulator + vCPU0-3 is fine. Referenced by the disk
          <driver iothread="1"> below. -->
     <iothreadpin iothread="1" cpuset="0-3"/>
-    <!-- Real-time scheduling for the A76 (big) vCPUs to cut scheduling jitter.
-         SAFETY: there is NO host-side core isolation (isolcpus/cpuset) here, so
-         these FIFO vCPUs at 100% could starve host housekeeping on cpu4-7. This
-         relies on the kernel default RT throttle (kernel.sched_rt_runtime_us=950000
-         → 95% cap, 5% always reserved for the host); do NOT set it to -1. priority=1
-         is the lowest RT priority on purpose. If the host shows watchdog stalls
-         under guest load, remove this line first. Needs CAP_SYS_NICE, which
-         qemu:///system normally has — if define/start fails here, that's why. -->
-    <vcpusched vcpus="4-7" scheduler="fifo" priority="1"/>
+    <!-- Real-time (FIFO) scheduling for the A76 (big) vCPUs to cut jitter.
+         DISABLED on this host: Debian 13 uses cgroup v2, and libvirt runs QEMU in a
+         machine.slice cgroup with the 'cpu' controller enabled — cgroup v2 forbids
+         SCHED_FIFO for tasks in such a cgroup, so start fails with
+         "Cannot set scheduler parameters ... Operation not permitted". QEMU also
+         drops to the libvirt-qemu user (no CAP_SYS_NICE), compounding it.
+         To re-enable you'd need host-side work (e.g. run QEMU as root in
+         /etc/libvirt/qemu.conf AND move QEMU out of the cpu-controlled cgroup / use
+         isolcpus for the A76 cluster) — the host isolation route deliberately not
+         taken here. Uncomment only after that groundwork:
+    <vcpusched vcpus="4-7" scheduler="fifo" priority="1"/> -->
   </cputune>
 
   <os>
