@@ -140,7 +140,16 @@
             config.allowUnfreePredicate = unfreePredicate;
             overlays = overlays;
           };
-          modules = [ ./home.nix ];
+          # Standalone HM needs username/homeDirectory set explicitly. As a NixOS
+          # module these are auto-injected from the system user, so home.nix omits
+          # them — supply them here for the `home-manager switch` path.
+          modules = [
+            ./home.nix
+            {
+              home.username = userName;
+              home.homeDirectory = "/home/${userName}";
+            }
+          ];
         };
       };
 
