@@ -45,6 +45,7 @@
     eza         # better `ls`               -> aliased below
     typos       # source-code spell checker -> binary: typos
     cachix      # binary cache push/pull
+    home-manager # CLI (from flake input, not nixpkgs — no emacs dep)
     # zoxide (`z`) and yazi (`y`) come from their Home Manager modules below.
 
     # --- Emacs (master "32", nox) + Spacemacs + Clojure --------------------
