@@ -68,6 +68,7 @@
     # nix-ld; no cmake/gcc/libtool needed).
     imagemagick                  # kitty-graphics: image dimension probe + non-PNG -> PNG
     gnutls                      # TLS for Emacs (package.el, ELPA/MELPA)
+    cmake                       # needed by vterm/multi-vterm Emacs packages
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------
