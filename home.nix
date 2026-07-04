@@ -69,6 +69,7 @@
     imagemagick                  # kitty-graphics: image dimension probe + non-PNG -> PNG
     gnutls                      # TLS for Emacs (package.el, ELPA/MELPA)
     cmake                       # needed by vterm/multi-vterm Emacs packages
+    mosh                        # responsive SSH replacement for emacs -nw
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------

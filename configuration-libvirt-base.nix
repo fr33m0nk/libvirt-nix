@@ -88,6 +88,7 @@
 
   # Plain DNS (not DoT) — systemd-resolved DoT was causing resolution failures
   networking.firewall.allowedTCPPorts = [ 22 3450 ];
+  networking.firewall.allowedUDPPortRanges = [ { from = 60000; to = 61000; } ];  # mosh
 
   systemd.services."home-manager-${userName}" = {
     after = [ "network-online.target" ];
