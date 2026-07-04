@@ -3,6 +3,30 @@
 # things NixOS already handles (no nix-daemon.sh sourcing — NixOS sets PATH;
 # no /etc/environment PATH hack — NixOS puts user packages on PATH everywhere).
 { config, pkgs, lib, hmPackage, ... }:
+let
+  # mosh 1.4.0 supports 24-bit color, but ONLY the semicolon SGR form
+  # (ESC[38;2;R;G;Bm). The stock `xterm-direct` terminfo emits the ITU colon
+  # form (ESC[38:2::R:G:Bm), which mosh silently drops — so a truecolor Emacs
+  # theme over mosh renders as monochrome (this is why the earlier
+  # TERM=xterm-direct emacsclient aliases were reverted). This entry is
+  # `xterm-direct` with setaf/setab rewritten to the semicolon form.
+  # Verified locally: `tput setaf 16744448` -> ESC[38;2;255;128;0m, and the
+  # low-16 ANSI colors still fall back to ESC[3Nm.
+  xterm-direct-semi-src = pkgs.writeText "xterm-direct-semi.ti" ''
+    xterm-direct-semi|xterm direct color, semicolon SGR (mosh-safe),
+      use=xterm-direct,
+      setaf=\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%;m,
+      setab=\E[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%;m,
+  '';
+  xterm-direct-semi = pkgs.runCommand "xterm-direct-semi-terminfo"
+    { nativeBuildInputs = [ pkgs.ncurses ]; }
+    ''
+      mkdir -p "$out/share/terminfo"
+      # resolve `use=xterm-direct` from ncurses' bundled terminfo DB
+      export TERMINFO_DIRS="${pkgs.ncurses}/share/terminfo"
+      tic -x -o "$out/share/terminfo" ${xterm-direct-semi-src}
+    '';
+in
 {
   home.stateVersion = "26.05";
 
@@ -70,6 +94,7 @@
     gnutls                      # TLS for Emacs (package.el, ELPA/MELPA)
     cmake                       # needed by vterm/multi-vterm Emacs packages
     mosh                        # responsive SSH replacement for emacs -nw
+    xterm-direct-semi           # mosh-safe truecolor terminfo (see let block)
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------
@@ -83,9 +108,26 @@
     package = pkgs.emacs-git-nox;      # use the overlay build, not pkgs.emacs (30.2)
   };
 
+  # `emacsclient -t` creates the tty frame inside the DAEMON, which reads the
+  # terminfo DB from the daemon's own environment. systemd user services are NOT
+  # populated from hm-session-vars.sh, so home.sessionVariables.TERMINFO_DIRS
+  # below does not reach the daemon — set it on the service explicitly so the
+  # daemon can resolve TERM=xterm-direct-semi.
+  systemd.user.services.emacs.Service.Environment = [
+    "TERMINFO_DIRS=${xterm-direct-semi}/share/terminfo:/run/current-system/sw/share/terminfo:/etc/terminfo:/usr/share/terminfo"
+  ];
+
   home.sessionVariables = {
     JAVA_HOME = "${pkgs.graalvmPackages.graalvm-ce}";
     EDITOR = "emacs";   # use with: emacs -nw
+    # So ncurses/Emacs (interactive shells + non-daemon `emacs -nw`) find the
+    # mosh-safe direct-color entry. The daemon gets it via the service env above.
+    TERMINFO_DIRS = lib.concatStringsSep ":" [
+      "${config.home.profileDirectory}/share/terminfo"
+      "/run/current-system/sw/share/terminfo"
+      "/etc/terminfo"
+      "/usr/share/terminfo"
+    ];
   };
 
   programs.bash = {
@@ -102,18 +144,21 @@
       export _ZO_DOCTOR=0
       # television: ctrl-R = shell history, ctrl-T = smart autocomplete.
       command -v tv >/dev/null && eval "$(tv init bash)"
-      # Spacemacs' catppuccin/spacemacs theme needs 24-bit color; xterm-direct
-      # tells Emacs the terminal is truecolor (WezTerm renders it). `-nw` keeps
-      # it in the terminal (emacs-nox is terminal-only anyway).
+      # Spacemacs' catppuccin/spacemacs theme needs 24-bit color. xterm-direct-semi
+      # (defined in home.nix's let block) tells Emacs the terminal is truecolor
+      # AND emits the semicolon SGR form that mosh 1.4.0 understands — plain
+      # xterm-direct emits the ITU colon form, which mosh drops (theme goes
+      # monochrome). `-nw` keeps it in the terminal (emacs-nox is terminal-only).
       # TERM_PROGRAM=WezTerm: kitty-graphics.el detects WezTerm's Kitty graphics
       # support via this env var (WezTerm's own env doesn't survive SSH into the
       # VM), so it picks the transmit-once Kitty backend over Sixel (which
       # re-emits the full payload on every scroll). Safe here — this VM is only
       # ever driven from WezTerm.
-      alias emacs='TERM=xterm-direct TERM_PROGRAM=WezTerm emacs -nw'
-      # Emacs daemon client shortcuts
-      alias et='emacsclient -t'
-      alias eat='emacsclient -t -a ""'
+      alias emacs='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacs -nw'
+      # Emacs daemon client shortcuts. TERM is set on the client; the daemon
+      # resolves the entry via TERMINFO_DIRS on its systemd service (see home.nix).
+      alias et='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacsclient -t'
+      alias eat='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacsclient -t -a ""'
       # Rust CLI replacements (interactive shells only; scripts use real ls/cat).
       alias ls='eza --group-directories-first'
       alias ll='eza -lah --group-directories-first'
