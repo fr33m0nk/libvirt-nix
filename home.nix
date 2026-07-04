@@ -111,9 +111,15 @@
       # re-emits the full payload on every scroll). Safe here — this VM is only
       # ever driven from WezTerm.
       alias emacs='TERM=xterm-direct TERM_PROGRAM=WezTerm emacs -nw'
-      # Emacs daemon client shortcuts
-      alias et='emacsclient -t'
-      alias eat='emacsclient -t -a ""'
+      # Emacs daemon client shortcuts. Same TERM/TERM_PROGRAM prefix as the `emacs`
+      # alias above, so daemon frames (`emacsclient -t`) get truecolor + WezTerm's
+      # Kitty-graphics detection too — otherwise a plain emacsclient inherits the
+      # login shell's TERM (e.g. under mosh) and the Spacemacs theme renders in 256
+      # colors. This is the fast path: mosh into the VM, then `eat`.
+      #   et  → attach a terminal frame to the running daemon
+      #   eat → same, but start the daemon first if it isn't running
+      alias et='TERM=xterm-direct TERM_PROGRAM=WezTerm emacsclient -t'
+      alias eat='TERM=xterm-direct TERM_PROGRAM=WezTerm emacsclient -t -a ""'
       # Rust CLI replacements (interactive shells only; scripts use real ls/cat).
       alias ls='eza --group-directories-first'
       alias ll='eza -lah --group-directories-first'
