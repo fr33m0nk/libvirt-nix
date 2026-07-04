@@ -123,6 +123,20 @@
   (when (and (not (display-graphic-p)) (fboundp 'kitty-graphics-mode))
     (kitty-graphics-mode 1))
 
+  ;; --- ghostel extensions (bundled with the ghostel package; just enable) ---
+  ;; eshell visual commands (top, less, htop, …) open in a ghostel buffer.
+  ;; Deferred via eshell-load-hook + autoload so eshell isn't force-loaded at
+  ;; startup (mirrors the evil-ghostel autoload below).
+  (autoload 'ghostel-eshell-visual-command-mode "ghostel-eshell" nil t)
+  (add-hook 'eshell-load-hook #'ghostel-eshell-visual-command-mode)
+  ;; Run all `compile' commands in a ghostel buffer, and replace comint's
+  ;; ansi-color-process-output with ghostel's VT parser. These are global modes
+  ;; we always want on; user-config runs after after-init, so enable them now.
+  (require 'ghostel-compile)
+  (ghostel-compile-global-mode)
+  (require 'ghostel-comint)
+  (ghostel-comint-global-mode)
+
   ;; --- ghostel terminal: evil integration + Spacemacs-style bindings --------
   ;; Autoload so the hook reliably activates evil-ghostel on the first terminal.
   (autoload 'evil-ghostel-mode "evil-ghostel" "Evil integration for ghostel." t)

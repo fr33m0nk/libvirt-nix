@@ -91,6 +91,15 @@
   programs.bash = {
     enable = true;
     initExtra = ''
+      # zoxide doctor false-positive under ghostel. ghostel wraps PROMPT_COMMAND
+      # (stashing the real one, incl. zoxide's `__zoxide_hook`, in
+      # __ghostel_original_prompt_command and setting PROMPT_COMMAND to just its
+      # own `__ghostel_wrapped_prompt_command`). zoxide's doctor is a *static*
+      # substring check on PROMPT_COMMAND — it special-cases VS Code's wrapper var
+      # but knows nothing about ghostel's, so it wrongly warns. The hook still runs
+      # every prompt via ghostel's eval of the stashed original, so tracking works;
+      # this just quiets the bogus warning. See dakra/ghostel + ajeetdsouza/zoxide.
+      export _ZO_DOCTOR=0
       # television: ctrl-R = shell history, ctrl-T = smart autocomplete.
       command -v tv >/dev/null && eval "$(tv init bash)"
       # Spacemacs' catppuccin/spacemacs theme needs 24-bit color; xterm-direct
