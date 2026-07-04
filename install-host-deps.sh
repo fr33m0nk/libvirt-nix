@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Host bootstrap for the libvirt NixOS dev VM on Armbian/Debian (RK3588 / OMV).
 # Installs libvirt + QEMU + all the device deps we hit during bring-up, plus Nix
-# (needed to build the qcow image on the host). Idempotent — safe to re-run.
+# (needed to build the qcow image on the host), and applies the big.LITTLE
+# performance tuning (CPU governor + prints the isolcpus/hugepages cmdline to add).
+# Idempotent — safe to re-run.
 #
 #   ./install-host-deps.sh
 #
 # Run as your normal user (NOT root); it uses sudo where needed. After it finishes,
-# log out/in once (for the libvirt/kvm groups + the Nix profile), then run
-# ./setup-libvirt-vm.sh.
+# log out/in once (for the libvirt/kvm groups + the Nix profile), add the kernel
+# cmdline line it prints to /boot/armbianEnv.txt, REBOOT, then run ./setup-libvirt-vm.sh.
 set -euo pipefail
 
 TARGET_USER="${SUDO_USER:-$USER}"
@@ -56,7 +58,7 @@ else
   sh <(curl -L https://nixos.org/nix/install) --daemon
 fi
 
-echo "==> 5/5  Nix config: flakes + nix-community cache + trust this user"
+echo "==> 5/6  Nix config: flakes + nix-community cache + trust this user"
 # Append our settings to /etc/nix/nix.conf only if not already present.
 NIXCONF=/etc/nix/nix.conf
 sudo touch "$NIXCONF"
@@ -73,9 +75,46 @@ sudo systemctl restart nix-daemon 2>/dev/null || true
 # Install cachix for binary cache push/pull
 nix profile install nixpkgs#cachix 2>/dev/null || echo "  cachix may already be installed"
 
+echo "==> 6/6  Performance tuning (RK3588 big.LITTLE — for the 2+2 pinned VM)"
+# See README "Performance tuning". The VM runs 4 vCPUs pinned 1:1 to ISOLATED
+# host cores — 2,3 (A55) + 6,7 (A76) — leaving 0,1 + 4,5 for the host. Two levers:
+
+# 6a. Pin the CPU governor to 'performance' so the A76 cluster stays at its ~2.256 GHz
+#     ceiling (no clock-down / ramp latency on bursty LSP/compile loads). A oneshot
+#     unit re-applies it every boot — cpufrequtils.service is masked on Armbian.
+sudo tee /etc/systemd/system/cpu-performance.service >/dev/null <<'EOF'
+[Unit]
+Description=Set CPU governor to performance
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now cpu-performance.service
+echo "  governor -> performance (persistent via cpu-performance.service)"
+
+# 6b. Kernel cmdline: isolate the VM's cores (2,3,6,7) from the host scheduler so
+#     nothing preempts the pinned vCPUs, and reserve hugepages to back the 12 GiB
+#     guest (6144 pages needed; reserve 6400 for headroom — an exactly-sized pool
+#     fails because the host always has a few pages in use). This edits the
+#     bootloader, so it is NOT auto-applied — add it by hand and reboot:
+CMDLINE="isolcpus=managed_irq,domain,2,3,6,7 nohz_full=2,3,6,7 rcu_nocbs=2,3,6,7 hugepages=6400"
+echo "  ACTION REQUIRED: append to the extraargs= line in /boot/armbianEnv.txt, then reboot:"
+echo "      ${CMDLINE}"
+echo "  Verify after reboot:"
+echo "      cat /sys/devices/system/cpu/isolated   # 2-3,6-7"
+echo "      grep HugePages_Total /proc/meminfo     # 6400"
+echo "      lscpu -e                               # confirm A55=0-3 (~1800MHz), A76=4-7 (~2256MHz)"
+
 echo
 echo "Done. Next:"
 echo "  1) Log out and back in (applies the libvirt/kvm groups + loads Nix into your shell)."
 echo "     (or this shell only:  . /etc/profile.d/nix.sh  &&  newgrp libvirt)"
-echo "  2) export LIBVIRT_DEFAULT_URI=qemu:///system"
-echo "  3) ./setup-libvirt-vm.sh"
+echo "  2) Add the isolcpus/hugepages line above to /boot/armbianEnv.txt, then: sudo reboot"
+echo "  3) export LIBVIRT_DEFAULT_URI=qemu:///system"
+echo "  4) ./setup-libvirt-vm.sh"

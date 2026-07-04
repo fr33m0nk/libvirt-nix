@@ -3,14 +3,20 @@
 #
 #   ./setup-libvirt-vm.sh
 #
-# Two modes:
+# Modes:
 #   1. BUILD from source (default) — compile the full toolchain + assemble qcow2.
 #      Slow but self-contained; uses the existing configuration.nix + make-disk-image.
 #   2. BASE IMAGE (--base-image <qcow2>) — skip the build; use a pre-built
 #      nixos-libvirt qcow2 from a release. Fast: just copy, resize, boot, then
 #      nixos-rebuild the libvirt-nix config into the running VM.
+#   3. REDEFINE (--redefine) — re-apply domain.xml to the EXISTING VM without
+#      rebuilding: no image build, no disk re-stage, NVRAM/disk/state preserved.
+#      Use this after editing domain.xml (CPU pinning, memory, hugepages, topology).
+#      It cold-restarts the VM (memory/vcpu/topology changes need a full boot) and
+#      preserves the domain UUID so `virsh define` updates in place.
 #
 #   ./setup-libvirt-vm.sh --base-image ../nixos-libvirt/release-v0.0.3-images/nixos-libvirt-v0.0.3-aarch64.qcow2
+#   ./setup-libvirt-vm.sh --redefine     # apply domain.xml changes to a running VM
 #
 # After first boot with --base-image, the script waits for the guest agent, then
 # runs nixos-rebuild inside the VM to apply the full dev toolchain. State is
@@ -40,7 +46,47 @@ NVRAM="${IMG_DIR}/${NAME}_VARS.fd"
 SHARE_NIXOS_CONFIG="${HERE}"   # the flake dir, virtiofs-shared
 DISK_GROW="${DISK_GROW:-150G}" # final disk size
 BUILD_PIN="${BUILD_PIN:-4-7}"  # cores for the pinned image step (A76 cluster)
+GUEST_HUGEPAGES=6144           # 12 GiB guest / 2 MiB = pages QEMU needs FREE at start
 export LIBVIRT_DEFAULT_URI=qemu:///system
+
+# ---- host tuning pre-flight (a mis-tuned host makes `virsh start` fail) ----
+# Checks the big.LITTLE tuning from install-host-deps.sh: performance governor,
+# isolated VM cores (2,3,6,7), and enough FREE hugepages to back the 12 GiB guest.
+preflight_host () {
+  echo ">>> host pre-flight (performance tuning)"
+  local gov iso free
+  gov="$(cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor 2>/dev/null || true)"
+  [ "$gov" = "performance" ] || \
+    echo "  WARN: cpu6 governor='${gov:-unknown}', expected 'performance' (see install-host-deps.sh step 6a)."
+  iso="$(cat /sys/devices/system/cpu/isolated 2>/dev/null || true)"
+  case "$iso" in
+    *6-7*) echo "  ok: isolated cores = ${iso}" ;;
+    *) echo "  WARN: isolated cores='${iso:-none}', expected '2-3,6-7' — add isolcpus=... to /boot/armbianEnv.txt + reboot." ;;
+  esac
+  free="$(awk '/HugePages_Free/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [ "${free:-0}" -lt "$GUEST_HUGEPAGES" ]; then
+    echo "  WARN: HugePages_Free=${free:-0} (< ${GUEST_HUGEPAGES} needed for the 12 GiB guest)."
+    echo "        'virsh start' will fail with 'unable to map backing store'. Reserve them:"
+    echo "        add hugepages=6400 to /boot/armbianEnv.txt + reboot (see install-host-deps.sh step 6b)."
+  else
+    echo "  ok: HugePages_Free=${free} (>= ${GUEST_HUGEPAGES})"
+  fi
+}
+
+# ---- print the post-start verification steps for the 2+2 layout ----
+print_verify () {
+  echo "  # host:"
+  echo "  virsh vcpupin ${NAME}          # expect 0->2  1->3  2->6  3->7"
+  echo "  virsh iothreadinfo ${NAME}     # iothread 1 -> 0-1 (host cores)"
+  echo "  virsh dominfo ${NAME} | grep -i memory       # 12 GiB"
+  echo "  grep HugePages_Free /proc/meminfo            # ~256 free after QEMU takes 6144"
+  echo "  cat /sys/devices/system/cpu/isolated         # 2-3,6-7"
+  echo "  # guest (virsh console ${NAME}, or ssh):"
+  echo "  nproc                                        # 4"
+  echo "  for c in 0 1 2 3; do printf 'cpu%s ' \$c; cat /sys/devices/system/cpu/cpu\$c/regs/identification/midr_el1; done"
+  echo "  #   cpu2,3 end ...d0b.. (A76) ; cpu0,1 end ...d05.. (A55) — if swapped, flip the slice ranges in configuration.nix"
+  echo "  systemctl show system.slice user.slice -p AllowedCPUs   # 0-1 and 0-3"
+}
 
 # Host NIC for macvtap — the VM attaches directly onto it and gets a LAN IP, no
 # host bridge needed. Auto-detect the device behind the default route; override
@@ -54,6 +100,7 @@ NIC="${NIC:-$(ip -o route show default 2>/dev/null | awk '{print $5; exit}')}"
 # ---- parse args -----------------------------------------------------------
 BASE_QCOW=""
 FORCE=false
+REDEFINE=false
 while [ $# -gt 0 ]; do
   case "$1" in
   --base-image)
@@ -64,8 +111,12 @@ while [ $# -gt 0 ]; do
     FORCE=true
     shift
     ;;
+  --redefine)
+    REDEFINE=true
+    shift
+    ;;
   *)
-    echo "Usage: $0 [--base-image <qcow2>] [--force]"
+    echo "Usage: $0 [--base-image <qcow2>] [--force] [--redefine]"
     exit 1
     ;;
   esac
@@ -109,6 +160,51 @@ NVRAM_TEMPLATE="/usr/share/AAVMF/AAVMF_VARS.fd"
   echo "AAVMF firmware not found (apt install qemu-efi-aarch64)"
   exit 1
 }
+
+# ---- REDEFINE fast path: re-apply domain.xml, no rebuild ------------------
+# Applies domain.xml edits (CPU pinning, memory, hugepages, topology) to the
+# existing VM. Preserves disk + NVRAM + guest state. Cold-restarts to apply.
+if $REDEFINE; then
+  virsh dominfo "$NAME" >/dev/null 2>&1 || {
+    echo "ERROR: domain '${NAME}' is not defined yet — run without --redefine first."
+    exit 1
+  }
+  echo ">>> [redefine] re-applying domain.xml to '${NAME}' (no rebuild; disk/nvram preserved)"
+  preflight_host
+
+  # Preserve the existing UUID so `virsh define` UPDATES in place. The template
+  # carries no <uuid>, so a plain define would try to CREATE and collide:
+  #   "domain 'lc-nix-libvirt' already exists with uuid ..."
+  UUID="$(virsh domuuid "$NAME")"
+
+  DOM="$(mktemp)"
+  sed -e "s#@EMULATOR@#${EMULATOR}#g" \
+    -e "s#@LOADER@#${LOADER}#g" \
+    -e "s#@NVRAM_TEMPLATE@#${NVRAM_TEMPLATE}#g" \
+    -e "s#@NVRAM@#${NVRAM}#g" \
+    -e "s#@DISK@#${DISK}#g" \
+    -e "s#@SHARE_NIXOS_CONFIG@#${SHARE_NIXOS_CONFIG}#g" \
+    -e "s#@NIC@#${NIC}#g" \
+    "${HERE}/domain.xml" >"$DOM"
+  sed -i "s#<name>${NAME}</name>#<name>${NAME}</name>\n  <uuid>${UUID}</uuid>#" "$DOM"
+
+  # Cold restart — memory/vcpu/topology changes only take effect on a fresh boot.
+  if virsh domstate "$NAME" 2>/dev/null | grep -q running; then
+    echo ">>> shutting down ${NAME} (cold restart required for CPU/memory changes)"
+    virsh shutdown "$NAME" || true
+    for _ in $(seq 1 60); do
+      virsh domstate "$NAME" 2>/dev/null | grep -q "shut off" && break
+      sleep 2
+    done
+  fi
+  virsh define "$DOM"
+  rm -f "$DOM"
+  virsh start "$NAME"
+  echo
+  echo ">>> '${NAME}' redefined + started. Verify:"
+  print_verify
+  exit 0
+fi
 
 # ---- 1. obtain the qcow2 --------------------------------------------------
 if $USE_BASE; then
@@ -162,6 +258,7 @@ sed -e "s#@EMULATOR@#${EMULATOR}#g" \
   "${HERE}/domain.xml" >"$DOM"
 
 # ---- 5. define + start ----------------------------------------------------
+preflight_host   # warn early if governor/isolcpus/hugepages aren't set (start would fail)
 echo ">>> defining + starting ${NAME}"
 virsh destroy "$NAME" 2>/dev/null || true
 virsh undefine --nvram "$NAME" 2>/dev/null || true
@@ -278,8 +375,9 @@ fi
 echo
 echo "Done. '${NAME}' is defined and running."
 echo "  console : virsh console ${NAME}        (login: ${NIXOS_USER})"
-echo "  pins    : virsh vcpupin ${NAME}        (expect 0->0 .. 7->7)"
 echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
+echo "  verify the 2+2 pinned layout:"
+print_verify
 echo
 if $USE_BASE; then
   echo "The base image was used — the dev toolchain is now applied via nixos-rebuild."

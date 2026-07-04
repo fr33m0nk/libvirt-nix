@@ -1,12 +1,17 @@
 # libvirt-nix — NixOS dev VM under libvirt/KVM (RK3588 big.LITTLE)
 
 The **libvirt** variant of the dev VM, for the Armbian/Debian host on a Radxa Rock 5
-ITX (RK3588). It exists for one reason Lima can't satisfy: **one KVM guest spanning
-all 8 cores** (4× A76 + 4× A55). Lima lets vCPU threads float, which crashes on
-RK3588 with `Failed to put registers after init` (the per-vCPU CCSIDR cache register
+ITX (RK3588). It exists for one reason Lima can't satisfy: **a KVM guest with vCPUs
+pinned across both clusters** (A76 + A55). Lima lets vCPU threads float, which crashes
+on RK3588 with `Failed to put registers after init` (the per-vCPU CCSIDR cache register
 can't be set when a thread migrates between clusters). libvirt fixes this by applying
-**1:1 `vcpupin`** during its paused (`-S`) startup, *before* register init — proven
-working in the `virt-install` boot test (8 vCPUs, no crash).
+**1:1 `vcpupin`** during its paused (`-S`) startup, *before* register init.
+
+The tuned layout is a **2+2 dedicated-core split**: the VM gets 4 vCPUs pinned 1:1 to
+*isolated* host cores — 2 little (A55) + 2 big (A76) — while the host keeps the other
+4 cores for itself (ZFS/NAS/Docker) and QEMU's emulator/IO threads. See
+[Performance tuning](#performance-tuning-rk3588-biglittle) for the full rationale and
+the host setup it depends on (governor, `isolcpus`, hugepages, guest core-preference).
 
 Same Clojure/Emacs toolchain as `../nixos` (`home.nix` + `dot-spacemacs.el` are
 copied verbatim). The difference is all in the host/boot layer: **no Lima, no
@@ -39,9 +44,9 @@ The flake supports two configurations:
 | `configuration-libvirt-base.nix` | NixOS system (GRUB variant): targets nixos-libvirt base image. Same packages, different boot layout. |
 | `home.nix`, `dot-spacemacs.el` | user toolchain (emacs-git-nox, clojure-lsp, docker, Spacemacs). |
 | `ssh-authorized-key.pub` | your SSH **public** key(s), read at build time — **gitignored** (create from `.example`). |
-| `domain.xml` | libvirt domain: **`<cputune>` 1:1 vcpupin** (+ dedicated IOThread on A55, 2-cluster CPU topology; FIFO `vcpusched` for A76 is present but commented out — cgroup v2 forbids it here), host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
-| `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/cachix) + Nix + groups + nix.conf with Cachix substituters. |
-| `setup-libvirt-vm.sh` | Build or copy image → stage disk/nvram → fill template → `virsh define`/`start` → post-boot checks (virtiofs, Cachix cache reachability). |
+| `domain.xml` | libvirt domain: **`<cputune>` 2+2 1:1 vcpupin** (vcpu0,1→A55 cores 2,3; vcpu2,3→A76 cores 6,7; emulator+IOThread on host cores 0-1; 2-cluster topology; 12 GiB backed by 2 MiB hugepages; FIFO `vcpusched` commented — see Phase 2), host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
+| `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/cachix) + Nix + groups + nix.conf with Cachix substituters + **big.LITTLE tuning** (CPU governor unit; prints the `isolcpus`/`hugepages` cmdline to add). |
+| `setup-libvirt-vm.sh` | Build or copy image → stage disk/nvram → fill template → host pre-flight → `virsh define`/`start` → post-boot checks. `--redefine` re-applies `domain.xml` to an existing VM (no rebuild, state preserved). |
 | `push-to-cache.sh` | Build the full system closure on the host and push to `fr33m0nk.cachix.org`. One-time 1-2 hour build. |
 | `.cachix-token` | Cachix auth token with write scope — **gitignored**, read by the VM via virtiofs for auto-push after rebuilds. |
 
@@ -90,6 +95,95 @@ No host bridge needed — the default networking is **macvtap** onto the host NI
 (the VM gets a real LAN IP directly). See Networking below for the trade-off and the
 bridge/NAT alternatives.
 
+## Performance tuning (RK3588 big.LITTLE)
+
+The VM is tuned as a **2+2 dedicated-core split**. The RK3588 is big.LITTLE —
+A55 (little) = host `cpu0-3`, A76 (big) = host `cpu4-7`:
+
+```
+                cpu0  cpu1  cpu2  cpu3   cpu4  cpu5  cpu6  cpu7
+cluster          A55   A55   A55   A55    A76   A76   A76   A76
+owner           host  host   VM    VM    host  host   VM    VM
+guest vcpu        -     -    0     1      -     -     2     3
+```
+
+The 4 VM cores (2,3,6,7) are **isolated from the host scheduler** (`isolcpus`) so
+nothing on the host (ZFS/NAS/Docker) can preempt the pinned vCPUs. The host keeps
+cpu0,1 + cpu4,5 for itself *and* for QEMU's emulator/IO threads (pinned to 0-1).
+Four independent levers make this work:
+
+1. **CPU governor → `performance`** (host). Keeps the A76 cluster at its ~2.256 GHz
+   ceiling instead of clocking down on bursty LSP/compile loads. Applied by
+   `install-host-deps.sh` (a `cpu-performance.service` oneshot re-runs it every boot;
+   `cpufrequtils.service` is masked on Armbian).
+2. **Core isolation** (`isolcpus=managed_irq,domain,2,3,6,7 nohz_full=2,3,6,7
+   rcu_nocbs=2,3,6,7`, host kernel cmdline). Removes the VM cores from host load
+   balancing. Set in the `extraargs=` line of `/boot/armbianEnv.txt`; needs a reboot.
+   Note: `isolcpus` also pushes ZFS/kernel threads OFF these cores — stronger than a
+   cgroup `AllowedCPUs` cpuset (which can't govern kernel threads).
+3. **Hugepages** (host). The 12 GiB guest RAM is backed by 2 MiB hugepages to cut
+   JVM/clojure-lsp TLB misses. Reserve on the kernel cmdline in the same `extraargs=`
+   line: **`hugepages=6400`**. Reserve *more* than the exact guest size (6144 pages =
+   12 GiB) — QEMU needs all 6144 **free at once** and the host always has a few in
+   use, so an exactly-sized pool fails with *"unable to map backing store … Cannot
+   allocate memory"*. 6400 gives ~256 pages of headroom. Reserving on the cmdline
+   (vs `sysctl`) allocates early at boot before RAM fragments. Do **not** also set
+   `vm.nr_hugepages` in `sysctl.d` — a sysctl runs *after* the cmdline and, if it
+   disagrees, shrinks the pool back.
+4. **Guest big-core preference by exclusion** (`configuration.nix`). QEMU `virt`
+   passes no `capacity-dmips-mhz`, so the guest scheduler treats all 4 vCPUs as equal
+   and would run hot threads on the slow A55 pair. Instead of exposing capacity, the
+   guest confines background/system work to the little vCPUs (`system.slice`
+   `AllowedCPUs=0-1`) and lets the interactive session reach all 4 (`user.slice`
+   `AllowedCPUs=0-3`). The big cores (guest cpu2,3) stay idle, so the scheduler
+   naturally migrates emacs/clojure-lsp onto them — while still able to spill down
+   under load. nix builds are throughput work that *should* use the big cores, so
+   `nix-daemon` is reparented into `nixbuild.slice` (`AllowedCPUs=0-3`) — cgroup v2
+   won't let a child of the restricted `system.slice` widen back to the big cores.
+
+**Full setup order** (levers 1-3 are host-side, one-time):
+```bash
+./install-host-deps.sh                       # installs the governor unit; prints the cmdline
+# add the printed isolcpus/hugepages line to /boot/armbianEnv.txt, then:
+sudo reboot
+# verify the host is tuned:
+cat /sys/devices/system/cpu/isolated         # 2-3,6-7
+grep HugePages_Total /proc/meminfo           # 6400
+lscpu -e                                      # A55=0-3 (~1800MHz), A76=4-7 (~2256MHz)
+```
+Lever 4 ships in `configuration.nix` / `configuration-libvirt-base.nix` and applies
+on the next `nixos-rebuild switch` inside the guest.
+
+**Applying `domain.xml` changes later** (CPU pinning, memory, hugepages, topology)
+*without* rebuilding the image — preserves disk + NVRAM + guest state:
+```bash
+./setup-libvirt-vm.sh --redefine
+```
+This runs the host pre-flight, preserves the domain UUID (so `virsh define` updates
+in place instead of colliding), cold-restarts the VM (memory/vcpu/topology changes
+need a full boot), and prints the verification steps.
+
+**Verify the VM layout** after start:
+```bash
+virsh vcpupin lc-nix-libvirt                 # 0->2  1->3  2->6  3->7
+virsh iothreadinfo lc-nix-libvirt            # iothread 1 -> 0-1
+virsh dominfo lc-nix-libvirt | grep -i memory   # 12 GiB
+# in the guest — cpu2,3 MUST be the A76 (else flip the ranges in configuration.nix):
+for c in 0 1 2 3; do printf 'cpu%s ' $c; \
+  cat /sys/devices/system/cpu/cpu$c/regs/identification/midr_el1; done
+#   cpu2,3 end ...d0b.. (A76) ; cpu0,1 end ...d05.. (A55)
+systemctl show system.slice user.slice -p AllowedCPUs   # 0-1 and 0-3
+```
+
+### Phase 2 (optional, off by default): FIFO scheduling
+`domain.xml` carries a commented `<vcpusched vcpus="2-3" scheduler="fifo"
+priority="1"/>` for the A76 vCPUs — real-time scheduling to trim residual jitter.
+It's **off** because it requires running QEMU as `root` (for `CAP_SYS_NICE`) and
+dropping the `cpu` cgroup controller in `/etc/libvirt/qemu.conf` — a security
+downgrade (loses the QEMU sandbox) for a small gain once the cores are already
+isolated. Enable only if you still see latency spikes under load; steps are inline
+in `domain.xml`.
+
 ## First-time bring-up
 
 ### Base image mode (recommended — fast, no compilation)
@@ -133,7 +227,9 @@ Then `nixos-rebuild` applies the full dev toolchain (~1-2h on RK3588, one-time).
 Builds the qcow2 from scratch using `make-disk-image` (requires KVM).
 Slow but self-contained.
 
-1. **Verify the core map** matches `domain.xml`'s `<cputune>`: `lscpu -e`.
+1. **Verify the core map** matches `domain.xml`'s `<cputune>`: `lscpu -e`
+   (A55=0-3, A76=4-7). Host tuning (governor/isolcpus/hugepages) must be in place
+   first — see [Performance tuning](#performance-tuning-rk3588-biglittle).
 2. Run it:
    ```bash
    export NIXOS_USER=prashantsinha
@@ -142,9 +238,9 @@ Slow but self-contained.
    ```
 3. Verify:
    ```bash
-   virsh vcpupin lc-nix-libvirt              # 0->0 .. 7->7
-   virsh iothreadinfo lc-nix-libvirt        # iothread 1 pinned to 0-3
-   virsh console lc-nix-libvirt              # login, then: nproc → 8, df -h /
+   virsh vcpupin lc-nix-libvirt              # 0->2  1->3  2->6  3->7
+   virsh iothreadinfo lc-nix-libvirt        # iothread 1 pinned to 0-1 (host cores)
+   virsh console lc-nix-libvirt              # login, then: nproc → 4, df -h /
    virsh domifaddr lc-nix-libvirt --source agent   # the LAN IP (see below)
 ## Finding the VM's IP (to SSH from your laptop)
 The VM uses **DHCP**, so the IP comes from your router. Static IP was not
@@ -193,8 +289,13 @@ Fast when packages are cached via Cachix.
 `--impure` is required so Nix can read `NIXOS_USER` from the environment.
 `path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
 rebuild.)
-Re-run `setup-libvirt-vm.sh` only to rebuild the base image from scratch (wipes VM
-state — projects, ~/.emacs.d, docker images).
+**Host-side domain changes** (`domain.xml`: CPU pinning, memory, hugepages, topology)
+apply with `./setup-libvirt-vm.sh --redefine` — re-defines + cold-restarts the VM,
+preserving disk/NVRAM/state (see
+[Performance tuning](#performance-tuning-rk3588-biglittle)).
+
+Re-run `setup-libvirt-vm.sh` (no flag / `--base-image`) only to rebuild the base image
+from scratch (wipes VM state — projects, ~/.emacs.d, docker images).
 
 ## Stopping / deleting the VM
 `export LIBVIRT_DEFAULT_URI=qemu:///system` first.
@@ -259,7 +360,8 @@ virtiofs (gitignored).
 - AAVMF paths exist (`/usr/share/AAVMF/AAVMF_{CODE,VARS}.fd`); the script falls
   back to `qemu-efi-aarch64/QEMU_EFI.fd`.
 - macvtap NIC auto-detected correctly (`ip -br link`).
-- vcpupin holds + guest is **stable under 8-way load** (`stress-ng --cpu 8`).
+- vcpupin holds (`0->2 1->3 2->6 3->7`) + guest is **stable under 4-way load**
+  (`stress-ng --cpu 4`); host cores 2,3,6,7 driven ~only by the guest.
 - qemu runs the disk OK from `/var/lib/libvirt/images` (avoid `$HOME` — the
   `libvirt-qemu` user can't traverse a `700` home dir).
 - Cachix: `nix store info --store https://fr33m0nk.cachix.org` from inside the VM.
