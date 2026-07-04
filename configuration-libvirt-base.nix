@@ -114,6 +114,28 @@
     "net.ipv6.conf.default.accept_ra" = 2;
   };
 
+  # --- big.LITTLE core-preference (2+2 pinned layout) ---------------------
+  # The host pins this VM's 4 vCPUs 1:1 onto ISOLATED physical cores:
+  #   guest cpu0,1 -> A55 (little)   guest cpu2,3 -> A76 (big)
+  # QEMU 'virt' passes no capacity-dmips-mhz, so the guest scheduler treats all
+  # cores as equal and would happily run hot threads on the slow A55 pair. We
+  # reconstruct big-core PREFERENCE BY EXCLUSION: confine background/system work
+  # to the little vCPUs (0-1) so the big cores (2-3) stay idle, and let the
+  # interactive user session reach all 4. The scheduler then naturally migrates
+  # emacs/clojure-lsp onto the idle big cores, while still able to spill down to
+  # 0-1 under heavy load. nix builds are throughput work that SHOULD use the big
+  # cores, so nix-daemon is moved into its own top-level slice allowed on 0-3
+  # (cgroup v2: a child can't widen beyond its parent, hence the reparent).
+  #
+  # VERIFY the mapping after boot — guest cpu2,3 MUST be the A76:
+  #   for c in 0 1 2 3; do printf 'cpu%s ' $c; \
+  #     cat /sys/devices/system/cpu/cpu$c/regs/identification/midr_el1; done
+  #   # A76 part = ...d0b.. ; A55 part = ...d05..  If swapped, flip the ranges.
+  systemd.slices.system.sliceConfig.AllowedCPUs = "0-1";
+  systemd.slices.user.sliceConfig.AllowedCPUs = "0-3";
+  systemd.slices.nixbuild.sliceConfig.AllowedCPUs = "0-3";
+  systemd.services.nix-daemon.serviceConfig.Slice = "nixbuild.slice";
+
   # --- Memory headroom -----------------------------------------------------
   zramSwap = { enable = true; memoryPercent = 50; };
   swapDevices = [ { device = "/var/swapfile"; size = 8192; } ];

@@ -2,59 +2,73 @@
   libvirt domain for the NixOS dev VM on the RK3588 (Armbian) host.
 
   @PLACEHOLDERS@ are filled in by setup-libvirt-vm.sh (paths, bridge, firmware).
-  The point of this whole file is the <cputune> 1:1 vCPU pinning: each vCPU is
-  bolted to one physical core spanning BOTH clusters (A55 0-3 + A76 4-7), so a
-  single KVM guest uses all 8 cores. libvirt applies the pin during its -S
-  (paused) startup, before the per-vCPU register init — which is what defeats the
-  CCSIDR "Failed to put registers after init" crash that killed floating-vCPU
-  setups under Lima. VERIFY the cpuset numbers against `lscpu -e` on your host
-  (A76 ≈ 2.2-2.4 GHz). 1:1 across 0-7 is what matters regardless of which is which.
+
+  LAYOUT: 2+2 dedicated-core split (see README "Performance tuning").
+  The RK3588 is big.LITTLE: A55 (little) = host cpu0-3, A76 (big) = host cpu4-7.
+  This VM gets 4 vCPUs pinned 1:1 to ISOLATED physical cores — 2 little + 2 big:
+      guest vcpu0 -> cpu2 (A55)   guest vcpu2 -> cpu6 (A76)
+      guest vcpu1 -> cpu3 (A55)   guest vcpu3 -> cpu7 (A76)
+  The host keeps cpu0,1 (A55) + cpu4,5 (A76) for itself + QEMU's emulator/IO
+  threads. Cores 2,3,6,7 are removed from the host scheduler via the kernel
+  cmdline so NOTHING on the host (ZFS/NAS/docker/etc.) preempts the pinned vCPUs:
+      isolcpus=managed_irq,domain,2,3,6,7 nohz_full=2,3,6,7 rcu_nocbs=2,3,6,7
+  (added to /boot/armbianEnv.txt extraargs= on the host; verify /proc/cmdline and
+  /sys/devices/system/cpu/isolated after reboot).
+
+  1:1 vcpupin (each vCPU bolted to one core, never migrating between clusters) is
+  what defeats the CCSIDR "Failed to put registers after init" crash that killed
+  floating-vCPU setups under Lima — libvirt applies the pin during its -S (paused)
+  startup, before the per-vCPU register init. Still true with 4 vCPUs.
+
+  VERIFY the cpuset numbers against `lscpu -e` on your host (A76 ≈ 2.25 GHz). The
+  guest sees a 2-cluster topology: guest cpu0,1 = A55, guest cpu2,3 = A76 — the
+  guest config pins background work to 0-1 and lets interactive work reach 2,3
+  (big-core "preference by exclusion", since QEMU virt passes no capacity info).
 -->
 <domain type="kvm">
   <name>lc-nix-libvirt</name>
-  <memory unit="GiB">16</memory>
-  <currentMemory unit="GiB">16</currentMemory>
+  <memory unit="GiB">12</memory>
+  <currentMemory unit="GiB">12</currentMemory>
 
-  <!-- virtiofs requires shared memory -->
+  <!-- virtiofs requires shared memory (memfd). Backed by 2 MiB hugepages to cut
+       TLB misses for the JVM/clojure-lsp. This PINS 12 GiB on the host, so reserve
+       matching pages there BEFORE start (fragmentation makes late reservation fail):
+         12 GiB / 2 MiB = 6144 pages
+         echo 'vm.nr_hugepages = 6144' | sudo tee /etc/sysctl.d/10-hugepages.conf
+       Verify: grep HugePages_Total /proc/meminfo  (and HugePages_Free after start). -->
   <memoryBacking>
     <source type="memfd"/>
     <access mode="shared"/>
     <hugepages/>
   </memoryBacking>
 
-  <vcpu placement="static">8</vcpu>
+  <vcpu placement="static">4</vcpu>
 
   <!-- One dedicated IOThread so virtio-blk completion handling runs on its own
-       thread (pinned to the A55 cluster below) instead of stealing cycles from the
+       thread (pinned to a HOST core below) instead of stealing cycles from the
        pinned vCPU threads. -->
   <iothreads>1</iothreads>
 
   <cputune>
-    <vcpupin vcpu="0" cpuset="0"/>
-    <vcpupin vcpu="1" cpuset="1"/>
-    <vcpupin vcpu="2" cpuset="2"/>
-    <vcpupin vcpu="3" cpuset="3"/>
-    <vcpupin vcpu="4" cpuset="4"/>
-    <vcpupin vcpu="5" cpuset="5"/>
-    <vcpupin vcpu="6" cpuset="6"/>
-    <vcpupin vcpu="7" cpuset="7"/>
-    <!-- keep QEMU's own IO/emulator threads on the little cores -->
-    <emulatorpin cpuset="0-3"/>
-    <!-- block-IO thread also on the little (A55) cluster; it's mostly idle, so
-         sharing 0-3 with the emulator + vCPU0-3 is fine. Referenced by the disk
-         <driver iothread="1"> below. -->
-    <iothreadpin iothread="1" cpuset="0-3"/>
-    <!-- Real-time (FIFO) scheduling for the A76 (big) vCPUs to cut jitter.
-         DISABLED on this host: Debian 13 uses cgroup v2, and libvirt runs QEMU in a
-         machine.slice cgroup with the 'cpu' controller enabled — cgroup v2 forbids
-         SCHED_FIFO for tasks in such a cgroup, so start fails with
-         "Cannot set scheduler parameters ... Operation not permitted". QEMU also
-         drops to the libvirt-qemu user (no CAP_SYS_NICE), compounding it.
-         To re-enable you'd need host-side work (e.g. run QEMU as root in
-         /etc/libvirt/qemu.conf AND move QEMU out of the cpu-controlled cgroup / use
-         isolcpus for the A76 cluster) — the host isolation route deliberately not
-         taken here. Uncomment only after that groundwork:
-    <vcpusched vcpus="4-7" scheduler="fifo" priority="1"/> -->
+    <!-- 1:1 pin onto the ISOLATED cores: 2 A55 (little) + 2 A76 (big) -->
+    <vcpupin vcpu="0" cpuset="2"/>   <!-- A55 (little) -->
+    <vcpupin vcpu="1" cpuset="3"/>   <!-- A55 (little) -->
+    <vcpupin vcpu="2" cpuset="6"/>   <!-- A76 (big) -->
+    <vcpupin vcpu="3" cpuset="7"/>   <!-- A76 (big) -->
+    <!-- QEMU's own emulator + block-IO threads live on the HOST's little cores
+         (cpu0,1) — deliberately OFF the isolated vCPU cores so they can never
+         steal cycles from the guest. -->
+    <emulatorpin cpuset="0-1"/>
+    <iothreadpin iothread="1" cpuset="0-1"/>
+    <!-- Real-time (FIFO) scheduling for the A76 (big) guest vCPUs (2-3) to cut
+         jitter. Now that host cores 6,7 are isolcpus'd, the cgroup-v2 blocker can
+         be cleared host-side (see README "Phase 2: FIFO"): in /etc/libvirt/qemu.conf
+         set user="root" + group="root" AND drop "cpu" from cgroup_controllers, then
+         `systemctl restart libvirtd`. cgroup v2 forbids SCHED_FIFO for a task in a
+         cpu-controlled cgroup, and QEMU needs CAP_SYS_NICE (root) to set it.
+         Enable ONLY after that groundwork — otherwise `virsh start` fails with
+         "Cannot set scheduler parameters ... Operation not permitted":
+    <vcpusched vcpus="2-3" scheduler="fifo" priority="1"/> -->
   </cputune>
 
   <os>
@@ -71,17 +85,18 @@
   </features>
 
   <!-- -cpu host: pass the physical core through. Required for the big.LITTLE test.
-       The <topology> models the physical 2×4 cluster layout so the guest scheduler
-       gets a cluster scheduling domain aligned with A55 (cpu0-3) / A76 (cpu4-7).
-       sockets×cores×threads must stay = 8 (matches <vcpu>8 and the 8 vcpupins).
+       The <topology> models a 2-cluster layout so the guest scheduler gets a cluster
+       scheduling domain: cluster0 = vcpu0,1 (A55), cluster1 = vcpu2,3 (A76).
+       sockets×clusters×cores×threads must stay = 4 (matches <vcpu>4 + the 4 vcpupins).
        NOTE: QEMU 'virt' + host-passthrough does NOT pass ARM capacity-dmips-mhz, so
-       the guest won't do full capacity-aware/EAS placement — but with 1:1 pinning
-       vCPU4-7 consistently report the A76 MIDR and vCPU0-3 the A55 MIDR, so the guest
-       can still tell them apart; the topology just gives the right grouping.
+       the guest won't do capacity-aware/EAS placement — but with 1:1 pinning vcpu2,3
+       report the A76 MIDR and vcpu0,1 the A55 MIDR, so the guest can still tell them
+       apart; the topology gives grouping, and the guest config supplies *preference*
+       by keeping background work off the big cores (see configuration.nix).
        'clusters' needs qemu ≥ 7.0 / libvirt ≥ 7.10 — if `virsh define` rejects it,
-       fall back to: <topology sockets="2" cores="4" threads="1"/> -->
+       fall back to: <topology sockets="2" cores="2" threads="1"/> -->
   <cpu mode="host-passthrough" check="none">
-    <topology sockets="1" clusters="2" cores="4" threads="1"/>
+    <topology sockets="1" clusters="2" cores="2" threads="1"/>
   </cpu>
 
   <clock offset="utc"/>
