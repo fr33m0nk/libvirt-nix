@@ -120,7 +120,13 @@
   ;; lighter shows the chosen backend: KittyGfx[K] (cheap, transmit-once) vs [S]
   ;; (Sixel, re-emits on scroll). TERM_PROGRAM=WezTerm (set in the emacs alias)
   ;; is what lets it pick [K] over SSH, where WezTerm's own env doesn't reach.
+  ;; Force the Kitty backend instead of relying on auto-detection. Auto-detect
+  ;; queries the terminal (CSI 16 t etc.) and reads the reply; over mosh with a
+  ;; custom terminfo those queries aren't answered, so `auto' falls back to
+  ;; `none'. We already know the transport is WezTerm (TERM_PROGRAM set in the
+  ;; alias), which speaks the Kitty graphics protocol, so pin it explicitly.
   (when (and (not (display-graphic-p)) (fboundp 'kitty-graphics-mode))
+    (setq kitty-gfx-preferred-protocol 'kitty)
     (kitty-graphics-mode 1))
 
   ;; --- ghostel extensions (bundled with the ghostel package; just enable) ---
