@@ -19,6 +19,7 @@
   <memoryBacking>
     <source type="memfd"/>
     <access mode="shared"/>
+    <hugepages/>
   </memoryBacking>
 
   <vcpu placement="static">8</vcpu>
@@ -93,7 +94,8 @@
 
     <!-- Root disk: the qcow2 built by `nix build .#qcow`, staged + resized. -->
     <disk type="file" device="disk">
-      <driver name="qemu" type="qcow2" discard="unmap" iothread="1"/>
+      <driver name="qemu" type="qcow2" discard="unmap" iothread="1"
+              cache="none" io="native"/>
       <source file="@DISK@"/>
       <target dev="vda" bus="virtio"/>
     </disk>
