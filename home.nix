@@ -149,7 +149,7 @@
       if ${pkgs.git}/bin/git clone --branch develop \
            https://github.com/syl20bnr/spacemacs "$HOME/.emacs.d.tmp" \
          && ${pkgs.git}/bin/git -C "$HOME/.emacs.d.tmp" \
-           checkout 7ee024bd93d7737c8c4e40dd04934d15e3ff87b9; then
+           checkout a34310ecbbb85fa9a125caee8fba227af1f94fcf; then
         rm -rf "$HOME/.emacs.d"
         mv "$HOME/.emacs.d.tmp" "$HOME/.emacs.d"
       else
