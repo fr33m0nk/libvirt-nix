@@ -256,15 +256,24 @@ or from inside the guest via console:
 virsh console lc-nix-libvirt        # login as your user
 ip -br addr                         # shows the LAN IP
 ```
-Then SSH from your laptop:
+Then connect from your laptop:
 ```bash
 ssh username@<that-ip>
+# or for a faster Emacs experience (predictive echo, roaming):
+mosh --predict=experimental devenv -- bash -lic 'et'
+```
+Fish users — use functions (not aliases):
+```fish
+# ~/.config/fish/config.fish
+function et
+    mosh --predict=experimental devenv -- bash -lic 'et'
+end
+function eat
+    mosh --predict=experimental devenv -- bash -lic 'eat'
+end
 ```
 For a **fixed IP**, configure a static DHCP lease on your router.
 Static IP config is preserved in comments in the config files.
-```bash
-ssh username@<that-ip>
-```
 Note: the **OMV host itself can't** SSH the VM over macvtap (kernel limitation) —
 use `virsh console` from the host; your laptop and other LAN machines are fine.
 
