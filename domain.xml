@@ -32,10 +32,14 @@
 
   <!-- virtiofs requires shared memory (memfd). Backed by 2 MiB hugepages to cut
        TLB misses for the JVM/clojure-lsp. This PINS 12 GiB on the host, so reserve
-       matching pages there BEFORE start (fragmentation makes late reservation fail):
-         12 GiB / 2 MiB = 6144 pages
-         echo 'vm.nr_hugepages = 6144' | sudo tee /etc/sysctl.d/10-hugepages.conf
-       Verify: grep HugePages_Total /proc/meminfo  (and HugePages_Free after start). -->
+       the pages there BEFORE start (fragmentation makes late reservation fail).
+       IMPORTANT: reserve MORE than the exact guest size — QEMU needs all 6144 pages
+       (12 GiB) FREE at once, but the host always has a handful in use, so a pool
+       sized exactly to the guest fails ("unable to map backing store ... Cannot
+       allocate memory"). Give ~256 pages of headroom:
+         12 GiB / 2 MiB = 6144 pages  ->  reserve 6400 (adds hugepages=6400 to the
+         host kernel cmdline in /boot/armbianEnv.txt, alongside isolcpus=...).
+       Verify: grep -i huge /proc/meminfo  (HugePages_Free must be >= 6144 pre-start). -->
   <memoryBacking>
     <source type="memfd"/>
     <access mode="shared"/>
