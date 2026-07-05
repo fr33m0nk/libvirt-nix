@@ -5,7 +5,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     herdr = {
-      url = "github:fr33m0nk/herdr";
+      url = "github:fr33m0nk/herdr/3a5e0f96b6b198719ab0f73d95fb73494310cba6";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     home-manager = {
