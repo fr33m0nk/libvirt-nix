@@ -325,7 +325,7 @@ if $USE_BASE; then
   virsh qemu-agent-command "$NAME" \
     '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/.cachix-token","/mnt/nixos-config/.cachix-token"],"capture-output":true}}' > /dev/null 2>&1 || true
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/nixos_user","/mnt/nixos-config/nixos_user"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/cp","arg":["/mnt/nixos-secrets/nixos_user","/mnt/nixos-config/nixos_user"],"capture-output":true}}' > /dev/null 2>&1 || true
 
   echo
   echo "=== Base image is booted. To apply the full dev toolchain: ==="
