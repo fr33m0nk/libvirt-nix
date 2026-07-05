@@ -21,6 +21,27 @@
         "type": "github"
       }
     },
+    "herdr": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783256566,
+        "narHash": "sha256-1KxqopIJ7lzX8N1WVyj2bv9QRZloH+f9Zld90bJLjHQ=",
+        "owner": "fr33m0nk",
+        "repo": "herdr",
+        "rev": "3a5e0f96b6b198719ab0f73d95fb73494310cba6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "fr33m0nk",
+        "repo": "herdr",
+        "rev": "3a5e0f96b6b198719ab0f73d95fb73494310cba6",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -77,6 +98,7 @@
     "root": {
       "inputs": {
         "emacs-overlay": "emacs-overlay",
+        "herdr": "herdr",
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs"
       }
