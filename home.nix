@@ -95,6 +95,7 @@ in
     cmake                       # needed by vterm/multi-vterm Emacs packages
     mosh                        # responsive SSH replacement for emacs -nw
     xterm-direct-semi           # mosh-safe truecolor terminfo (see let block)
+    herdr                       # terminal workspace manager for AI coding agents
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------

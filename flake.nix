@@ -4,6 +4,10 @@
   # Same pins as ../nixos. Track the nixpkgs stable release; roll with `nix flake update`.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    herdr = {
+      url = "github:fr33m0nk/herdr";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -18,7 +22,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, home-manager, emacs-overlay, ... }:
+  outputs = { self, nixpkgs, herdr, home-manager, emacs-overlay, ... }:
     let
       lib = nixpkgs.lib;
 
@@ -61,7 +65,7 @@
         });
       };
 
-      overlays = [ herokuOverlay clojureLspOverlay emacs-overlay.overlays.default ];
+      overlays = [ herokuOverlay clojureLspOverlay emacs-overlay.overlays.default herdr.overlays.default ];
 
       userName =
         let v = builtins.getEnv "NIXOS_USER";
