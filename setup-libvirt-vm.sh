@@ -147,7 +147,7 @@ fi
 USER_NAME=$(cat "$USER_FILE")
 
 # Create host-side symlinks so flake.nix can read from repo root
-for f in ssh-authorized-key.pub .cachix-token nixos_user; do
+for f in ssh-authorized-key.pub .cachix-token; do
   if [ -f "${SECRETS_DIR}/${f}" ] && [ ! -e "${HERE}/${f}" ]; then
     ln -sf "${SECRETS_DIR}/${f}" "${HERE}/${f}"
     echo "Linked ${HERE}/${f} -> ${SECRETS_DIR}/${f}"
