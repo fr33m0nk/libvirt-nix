@@ -36,8 +36,13 @@
 
   # Clone the flake repo from GitHub on first boot, then mount secrets
   # (SSH key, cachix token, nixos_user) at /mnt/nixos-config/secrets/.
-  # No separate virtiofs mount needed — secrets overlay inside the clone.
   boot.kernelModules = [ "virtiofs" "virtio_balloon" ];
+  fileSystems."/mnt/nixos-config/secrets" = {
+    device = "nixos-config/secrets";
+    fsType = "virtiofs";
+    options = [ "nofail" ];
+    depends = [ "/mnt/nixos-config" ];
+  };
   systemd.services.clone-nixos-config = {
     description = "Clone libvirt-nix flake repo on first boot";
     after = [ "network-online.target" ];
@@ -53,7 +58,6 @@
       fi
       git clone https://github.com/fr33m0nk/libvirt-nix "$REPO_DIR"
       mkdir -p "$REPO_DIR/secrets"
-      mount -t virtiofs nixos-config/secrets "$REPO_DIR/secrets" || true
     '';
     serviceConfig = {
       Type = "oneshot";
