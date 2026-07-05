@@ -80,11 +80,11 @@
     subUidRanges = [ { startUid = 100000; count = 65536; } ];
     subGidRanges = [ { startGid = 100000; count = 65536; } ];
     openssh.authorizedKeys.keys =
-      let f = ./ssh-authorized-key.pub; in
+      let f = ./secrets/ssh-authorized-key.pub; in
       if builtins.pathExists f
       then lib.filter (s: s != "") (lib.splitString "\n" (builtins.readFile f))
       else throw ''
-        libvirt-nix: ./ssh-authorized-key.pub is missing.
+        libvirt-nix: ./secrets/ssh-authorized-key.pub is missing.
         Create it with your SSH *public* key (one per line) before building, e.g.:
           cp ssh-authorized-key.pub.example ssh-authorized-key.pub   # then edit
         Refusing to build a VM with no SSH access.'';

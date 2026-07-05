@@ -85,17 +85,17 @@
     subGidRanges = [ { startGid = 100000; count = 65536; } ];
     # Console + SSH access. REPLACE the key with your laptop's public key; the
     # initialPassword is only a console fallback (change it / drop it once SSH works).
-    # SSH public key(s) read from ./ssh-authorized-key.pub (gitignored — kept OUT
+    # SSH public key(s) read from ./secrets/ssh-authorized-key.pub (gitignored)
     # of the committed repo). One key per line. A missing file is a HARD ERROR — we
     # won't build a VM with no way in. NOTE: because the file is untracked, the
     # build must use a `path:` flake ref so Nix can see it; setup-libvirt-vm.sh does
     # this, and for in-VM rebuilds use `--flake path:/mnt/nixos-config#...`.
     openssh.authorizedKeys.keys =
-      let f = ./ssh-authorized-key.pub; in
+      let f = ./secrets/ssh-authorized-key.pub; in
       if builtins.pathExists f
       then lib.filter (s: s != "") (lib.splitString "\n" (builtins.readFile f))
       else throw ''
-        libvirt-nix: ./ssh-authorized-key.pub is missing.
+        libvirt-nix: ./secrets/ssh-authorized-key.pub is missing.
         Create it with your SSH *public* key (one per line) before building, e.g.:
           cp ssh-authorized-key.pub.example ssh-authorized-key.pub   # then edit
         Refusing to build a VM with no SSH access.'';
