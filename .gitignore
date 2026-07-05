@@ -1,8 +1,7 @@
-# SSH public key(s) for the VM — kept OUT of the repo (create from the .example).
+# Secrets — mounted into VM via virtiofs (never committed)
+.cachix.token
 ssh-authorized-key.pub
-
-# Cachix auth token — never commit (place on virtiofs for auto-push)
-.cachix-token
+nixos_user
 
 # Build artifacts
 result
