@@ -146,6 +146,12 @@ if [ ! -f "$USER_FILE" ]; then
 fi
 USER_NAME=$(cat "$USER_FILE")
 
+# Ensure nixos_user exists in repo root (flake reads it directly, not via symlink)
+if [ ! -f "${HERE}/nixos_user" ]; then
+  cp "${USER_FILE}" "${HERE}/nixos_user"
+  echo "Created ${HERE}/nixos_user"
+fi
+
 # Create host-side symlinks so flake.nix can read from repo root
 for f in ssh-authorized-key.pub .cachix-token; do
   if [ -f "${SECRETS_DIR}/${f}" ] && [ ! -e "${HERE}/${f}" ]; then
