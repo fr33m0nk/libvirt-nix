@@ -320,12 +320,9 @@ if $USE_BASE; then
   virsh qemu-agent-command "$NAME" \
     '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/git","arg":["clone","https://github.com/fr33m0nk/libvirt-nix","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
   sleep 3
+  # Mount secrets virtiofs directly into the cloned repo — no symlinks needed
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/ssh-authorized-key.pub","/mnt/nixos-config/ssh-authorized-key.pub"],"capture-output":true}}' > /dev/null 2>&1 || true
-  virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/.cachix-token","/mnt/nixos-config/.cachix-token"],"capture-output":true}}' > /dev/null 2>&1 || true
-  virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/cp","arg":["/mnt/nixos-secrets/nixos_user","/mnt/nixos-config/nixos_user"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config/secrets","/mnt/nixos-config/secrets"],"capture-output":true}}' > /dev/null 2>&1 || true
 
   echo
   echo "=== Base image is booted. To apply the full dev toolchain: ==="
