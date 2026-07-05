@@ -187,7 +187,7 @@ in
   # gitignored file on virtiofs. Idempotent and non-fatal — skips
   # silently if the token file is missing.
   home.activation.configureCachix = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    TOKEN_FILE=/mnt/nixos-secrets/.cachix-token
+    TOKEN_FILE=/mnt/nixos-config/secrets/.cachix-token
     if [ -f "$TOKEN_FILE" ]; then
       if ! ${pkgs.cachix}/bin/cachix authtoken check >/dev/null 2>&1; then
         cat "$TOKEN_FILE" | ${pkgs.cachix}/bin/cachix authtoken --stdin

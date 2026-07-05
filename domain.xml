@@ -120,12 +120,12 @@
     </disk>
 
     <!-- virtiofs share of secrets (ssh key, cachix token, nixos_user).
-         The flake repo is cloned by the guest from GitHub at boot.
+         Secrets (ssh key, cachix token, nixos_user) mounted inside the cloned flake repo.
          target dir must match configuration.nix fileSystems device "nixos-secrets". -->
     <filesystem type="mount" accessmode="passthrough">
       <driver type="virtiofs"/>
       <source dir="@SECRETS@"/>
-      <target dir="nixos-secrets"/>
+      <target dir="nixos-config/secrets"/>
     </filesystem>
 
     <!-- Networking. Default: macvtap (type='direct') onto the host NIC → the VM

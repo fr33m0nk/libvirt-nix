@@ -67,7 +67,7 @@
 
       overlays = [ herokuOverlay clojureLspOverlay emacs-overlay.overlays.default herdr.overlays.default ];
 
-      userName = lib.trim (builtins.readFile ./nixos_user);
+      userName = lib.trim (builtins.readFile ./secrets/nixos_user);
 
       mkSystem = system: lib.nixosSystem {
         inherit system;

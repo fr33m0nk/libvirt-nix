@@ -34,43 +34,11 @@
     fsType = "vfat";
   };
 
-  # --- virtiofs: secrets (cachix token, SSH key, nixos_user) ----------
-  fileSystems."/mnt/nixos-secrets" = {
-    device = "nixos-secrets";
-    fsType = "virtiofs";
-    options = [ "nofail" ];
-  };
-
-  # Clone the flake repo from GitHub on first boot (idempotent).
+  # Clone the flake repo from GitHub on first boot, then mount secrets
+  # (SSH key, cachix token, nixos_user) at /mnt/nixos-config/secrets/.
+  # No separate virtiofs mount needed — secrets overlay inside the clone.
+  boot.kernelModules = [ "virtiofs" "virtio_balloon" ];
   systemd.services.clone-nixos-config = {
-    description = "Clone libvirt-nix flake repo on first boot";
-    after = [ "network-online.target" "mnt-nixos-secrets.mount" ];
-    wants = [ "network-online.target" "mnt-nixos-secrets.mount" ];
-    path = [ pkgs.git ];
-    script = ''
-      set -euo pipefail
-      REPO_DIR=/mnt/nixos-config
-      SECRETS_DIR=/mnt/nixos-secrets
-      if [ -d "$REPO_DIR/.git" ]; then
-        echo "Repo already cloned, skipping."
-        exit 0
-      fi
-      git clone https://github.com/fr33m0nk/libvirt-nix "$REPO_DIR"
-      for f in ssh-authorized-key.pub .cachix-token; do
-        if [ -f "$SECRETS_DIR/$f" ]; then
-          ln -sf "$SECRETS_DIR/$f" "$REPO_DIR/$f"
-        fi
-      done
-      if [ -f "$SECRETS_DIR/nixos_user" ] && [ ! -f "$REPO_DIR/nixos_user" ]; then
-        cp "$SECRETS_DIR/nixos_user" "$REPO_DIR/nixos_user"
-      fi
-    '';
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    wantedBy = [ "multi-user.target" ];
-  };
 
   # --- libvirt guest integration ------------------------------------------
   services.qemuGuest.enable = true;   # IP reporting, graceful shutdown via virsh

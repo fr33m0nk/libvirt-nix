@@ -315,7 +315,7 @@ if $USE_BASE; then
     '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' > /dev/null 2>&1 || true
   sleep 1
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-secrets","/mnt/nixos-secrets"],"capture-output":true}}' > /dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config/secrets","/mnt/nixos-secrets"],"capture-output":true}}' > /dev/null 2>&1 || true
   sleep 1
   virsh qemu-agent-command "$NAME" \
     '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/git","arg":["clone","https://github.com/fr33m0nk/libvirt-nix","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true

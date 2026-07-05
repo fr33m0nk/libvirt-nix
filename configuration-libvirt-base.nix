@@ -31,46 +31,11 @@
     options = [ "noatime" "nodiratime" "discard" ];
   };
 
-  # --- virtiofs: secrets (cachix token, SSH key, nixos_user) ----------
+  # Clone the flake repo from GitHub on first boot, then mount secrets
+  # (SSH key, cachix token, nixos_user) at /mnt/nixos-config/secrets/.
+  # No separate virtiofs mount needed — secrets overlay inside the clone.
   boot.kernelModules = [ "virtiofs" "virtio_balloon" ];
-  fileSystems."/mnt/nixos-secrets" = {
-    device = "nixos-secrets";
-    fsType = "virtiofs";
-    options = [ "nofail" ];
-  };
-
-  # Clone the flake repo from GitHub on first boot (idempotent).
-  # Symlinks sensitive files from /mnt/nixos-secrets into the repo.
   systemd.services.clone-nixos-config = {
-    description = "Clone libvirt-nix flake repo on first boot";
-    after = [ "network-online.target" "mnt-nixos-secrets.mount" ];
-    wants = [ "network-online.target" "mnt-nixos-secrets.mount" ];
-    path = [ pkgs.git ];
-    script = ''
-      set -euo pipefail
-      REPO_DIR=/mnt/nixos-config
-      SECRETS_DIR=/mnt/nixos-secrets
-      if [ -d "$REPO_DIR/.git" ]; then
-        echo "Repo already cloned, skipping."
-        exit 0
-      fi
-      git clone https://github.com/fr33m0nk/libvirt-nix "$REPO_DIR"
-      for f in ssh-authorized-key.pub .cachix-token; do
-        if [ -f "$SECRETS_DIR/$f" ]; then
-          ln -sf "$SECRETS_DIR/$f" "$REPO_DIR/$f"
-        fi
-      done
-      # nixos_user must be a real copy, not a symlink (pure eval forbids absolute paths)
-      if [ -f "$SECRETS_DIR/nixos_user" ] && [ ! -f "$REPO_DIR/nixos_user" ]; then
-        cp "$SECRETS_DIR/nixos_user" "$REPO_DIR/nixos_user"
-      fi
-    '';
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    wantedBy = [ "multi-user.target" ];
-  };
 
   # --- libvirt guest integration ------------------------------------------
   services.qemuGuest.enable = true;   # IP reporting, graceful shutdown via virsh
@@ -195,7 +160,7 @@
 
   # After nixos-rebuild switch, push new store paths to the fr33m0nk
   # Cachix cache so other VMs / fresh installs download pre-built packages.
-  # Requires a Cachix auth token in /mnt/nixos-secrets/.cachix-token
+  # Requires a Cachix auth token in /mnt/nixos-config/secrets/.cachix-token
   # (gitignored, never committed). Without the token, this is a no-op.
   systemd.services.cachix-push = {
     description = "Push new Nix store paths to fr33m0nk.cachix.org";
@@ -204,7 +169,7 @@
     path = [ pkgs.cachix pkgs.bash ];
     script = ''
       set -euo pipefail
-      TOKEN_FILE=/mnt/nixos-secrets/.cachix-token
+      TOKEN_FILE=/mnt/nixos-config/secrets/.cachix-token
       CACHE=fr33m0nk
       if [ ! -f "$TOKEN_FILE" ]; then
         echo "cachix-push: no .cachix-token on virtiofs, skipping push"
