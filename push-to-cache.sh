@@ -14,8 +14,6 @@
 # Run on the RK3588 host (not inside a VM) to use all 8 cores.
 set -euo pipefail
 
-: "${NIXOS_USER:?NIXOS_USER environment variable is required. Set it to your username.}"
-
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CACHE="fr33m0nk"
 FLAKE="path:${HERE}"
@@ -42,7 +40,6 @@ TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-aarch64-base.config.system.bui
 echo ">>> Building: ${TOPLEVEL}"
 nix build "$TOPLEVEL" \
   --extra-experimental-features "nix-command flakes" \
-  --impure \
   --print-out-paths \
   --out-link result-toplevel
 

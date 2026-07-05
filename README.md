@@ -19,11 +19,11 @@ nixos-lima** — it's a plain NixOS guest plus a libvirt domain.
 
 ## Prerequisites
 
-### Required: `NIXOS_USER` environment variable
-All scripts and the flake require `NIXOS_USER` to be set. This is the username
+
+
 created inside the VM — no default, no fallback. Set it in your shell profile:
 ```bash
-export NIXOS_USER=prashantsinha
+
 ```
 Without this, `nix build`, `nixos-rebuild`, and `./setup-libvirt-vm.sh` will
 exit with an error immediately.
@@ -43,12 +43,12 @@ The flake supports two configurations:
 | `configuration.nix` | NixOS system (systemd-boot variant): user, sshd, DHCP, virtiofs, docker, nix-ld. |
 | `configuration-libvirt-base.nix` | NixOS system (GRUB variant): targets nixos-libvirt base image. Same packages, different boot layout. |
 | `home.nix`, `dot-spacemacs.el` | user toolchain (emacs-git-nox, clojure-lsp, docker, Spacemacs). |
-| `ssh-authorized-key.pub` | your SSH **public** key(s), read at build time — **gitignored** (create from `.example`). |
+| `secrets/ssh-authorized-key.pub` | your SSH **public** key(s), read at build time — **gitignored** (create from `.example`). |
 | `domain.xml` | libvirt domain: **`<cputune>` 2+2 1:1 vcpupin** (vcpu0,1→A55 cores 2,3; vcpu2,3→A76 cores 6,7; emulator+IOThread on host cores 0-1; 2-cluster topology; 12 GiB backed by 2 MiB hugepages; FIFO `vcpusched` commented — see Phase 2), host-passthrough CPU, virtiofs, macvtap NIC, UEFI, console, guest-agent, memballoon. `@PLACEHOLDERS@` filled by the script. |
 | `install-host-deps.sh` | one-shot host bootstrap: apt deps (libvirt/QEMU/AAVMF/virtiofsd/cachix) + Nix + groups + nix.conf with Cachix substituters + **big.LITTLE tuning** (CPU governor unit; prints the `isolcpus`/`hugepages` cmdline to add). |
 | `setup-libvirt-vm.sh` | Build or copy image → stage disk/nvram → fill template → host pre-flight → `virsh define`/`start` → post-boot checks. `--redefine` re-applies `domain.xml` to an existing VM (no rebuild, state preserved). |
 | `push-to-cache.sh` | Build the full system closure on the host and push to `fr33m0nk.cachix.org`. One-time 1-2 hour build. |
-| `.cachix-token` | Cachix auth token with write scope — **gitignored**, read by the VM via virtiofs for auto-push after rebuilds. |
+| `secrets/.cachix-token` | Cachix auth token with write scope — **gitignored**, read by the VM via virtiofs for auto-push after rebuilds. |
 
 ## Prerequisites (host)
 
@@ -200,14 +200,14 @@ Then `nixos-rebuild` applies the full dev toolchain (~1-2h on RK3588, one-time).
    ./install-host-deps.sh
    # log out/in to apply groups + Nix profile
    ```
-2. **Create `ssh-authorized-key.pub`** with your SSH *public* key (one per line) —
+2. **Create `secrets/ssh-authorized-key.pub`** with your SSH *public* key (one per line) —
    it's gitignored. The build **halts with an error** if missing.
    ```bash
-   cp ssh-authorized-key.pub.example ssh-authorized-key.pub
+   cp secrets/ssh-authorized-key.pub.example secrets/ssh-authorized-key.pub
    ```
 3. **Add your Cachix push token** (optional — enables binary cache uploads):
    ```bash
-   echo "<your-cachix-write-token>" > .cachix-token
+   echo "<your-cachix-write-token>" > secrets/.cachix-token
    ```
 4. **Run the setup** with a pre-built qcow2:
    ```bash
@@ -284,19 +284,19 @@ the host and rebuild inside the VM.
 **Home-manager only** (dot-spacemacs.el, shell aliases, home packages):
 ```bash
 ssh ${NIXOS_USER:-username}@<vm-ip>
-NIXOS_USER=prashantsinha home-manager switch --impure --flake path:/mnt/nixos-config#prashantsinha@libvirt-vm-aarch64-base
+home-manager switch --flake path:/mnt/nixos-config#prashantsinha@libvirt-vm-aarch64-base
 ```
 Seconds — only rebuilds the user environment.
 
 **Full system rebuild** (configuration.nix, new packages, kernel changes):
 ```bash
 ssh ${NIXOS_USER:-username}@<vm-ip>
-sudo NIXOS_USER=prashantsinha nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
+sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-aarch64-base
 ```
 Fast when packages are cached via Cachix.
 (`NIXOS_USER=` is passed inline — `sudo -E` doesn't forward custom variables on NixOS.
 `--impure` is required so Nix can read `NIXOS_USER` from the environment.
-`path:` — not `.#` — so the untracked `ssh-authorized-key.pub` is visible to the
+`path:` — not `.#` — so the untracked `secrets/ssh-authorized-key.pub` is visible to the
 rebuild.)
 **Host-side domain changes** (`domain.xml`: CPU pinning, memory, hugepages, topology)
 apply with `./setup-libvirt-vm.sh --redefine` — re-defines + cold-restarts the VM,
@@ -358,7 +358,7 @@ First-time cache priming:
 ```
 
 Subsequent rebuilds push automatically via `cachix-push.service` (runs after
-every `nixos-rebuild switch`). Requires `.cachix-token` with write scope on
+every `nixos-rebuild switch`). Requires `secrets/.cachix-token` with write scope on
 virtiofs (gitignored).
 
 ## VERIFY checklist (build-from-source mode only)

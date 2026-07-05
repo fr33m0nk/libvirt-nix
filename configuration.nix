@@ -34,14 +34,39 @@
     fsType = "vfat";
   };
 
-  # --- virtiofs share: the flake dir, host-mounted (edit on host, rebuild here) -
-  # Mirrors Lima's /mnt/nixos-config bind. The mount tag must match domain.xml's
-  # <filesystem><target dir='nixos-config'/>. virtiofs needs shared memory in the
-  # domain (memoryBacking access=shared) — handled in domain.xml.
-  fileSystems."/mnt/nixos-config" = {
-    device = "nixos-config";
+  # --- virtiofs: secrets (cachix token, SSH key, nixos_user) ----------
+  fileSystems."/mnt/nixos-secrets" = {
+    device = "nixos-secrets";
     fsType = "virtiofs";
-    options = [ "nofail" ];        # don't block boot if the host share is absent
+    options = [ "nofail" ];
+  };
+
+  # Clone the flake repo from GitHub on first boot (idempotent).
+  systemd.services.clone-nixos-config = {
+    description = "Clone libvirt-nix flake repo on first boot";
+    after = [ "network-online.target" "mnt-nixos-secrets.mount" ];
+    wants = [ "network-online.target" "mnt-nixos-secrets.mount" ];
+    path = [ pkgs.git ];
+    script = ''
+      set -euo pipefail
+      REPO_DIR=/mnt/nixos-config
+      SECRETS_DIR=/mnt/nixos-secrets
+      if [ -d "$REPO_DIR/.git" ]; then
+        echo "Repo already cloned, skipping."
+        exit 0
+      fi
+      git clone https://github.com/fr33m0nk/libvirt-nix "$REPO_DIR"
+      for f in ssh-authorized-key.pub .cachix-token nixos_user; do
+        if [ -f "$SECRETS_DIR/$f" ]; then
+          ln -sf "$SECRETS_DIR/$f" "$REPO_DIR/$f"
+        fi
+      done
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    wantedBy = [ "multi-user.target" ];
   };
 
   # --- libvirt guest integration ------------------------------------------

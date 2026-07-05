@@ -33,9 +33,6 @@
 
 set -euo pipefail
 
-# ---- required env vars ----------------------------------------------------
-: "${NIXOS_USER:?NIXOS_USER environment variable is required. Set it to your username.}"
-
 # ---- config (edit to taste) ------------------------------------------------
 NAME="lc-nix-libvirt"
 ARCH="$(uname -m)" # aarch64 | x86_64
@@ -43,10 +40,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 IMG_DIR="/var/lib/libvirt/images"
 DISK="${IMG_DIR}/${NAME}.qcow2"
 NVRAM="${IMG_DIR}/${NAME}_VARS.fd"
-SHARE_NIXOS_CONFIG="${HERE}"   # the flake dir, virtiofs-shared
-DISK_GROW="${DISK_GROW:-150G}" # final disk size
-BUILD_PIN="${BUILD_PIN:-4-7}"  # cores for the pinned image step (A76 cluster)
-GUEST_HUGEPAGES=6144           # 12 GiB guest / 2 MiB = pages QEMU needs FREE at start
+SECRETS_DIR="${HERE}/secrets"     # virtiofs-mounted into VM (/mnt/nixos-secrets)
+DISK_GROW="${DISK_GROW:-150G}"    # final disk size
+BUILD_PIN="${BUILD_PIN:-4-7}"      # cores for the pinned image step (A76 cluster)
+GUEST_HUGEPAGES=6144               # 12 GiB guest / 2 MiB = pages QEMU needs FREE at start
 export LIBVIRT_DEFAULT_URI=qemu:///system
 
 # ---- host tuning pre-flight (a mis-tuned host makes `virsh start` fail) ----
@@ -131,15 +128,23 @@ if [ -n "$BASE_QCOW" ]; then
   }
 fi
 
-# ---- SSH key (kept out of the repo; gitignored) ---------------------------
-KEY_FILE="${HERE}/ssh-authorized-key.pub"
+# ---- SSH key and secrets (kept out of the repo; gitignored) --------------
+mkdir -p "$SECRETS_DIR"
+KEY_FILE="${SECRETS_DIR}/ssh-authorized-key.pub"
 if [ ! -s "$KEY_FILE" ]; then
   echo "ERROR: ${KEY_FILE} is missing or empty."
   echo "  Create it with your SSH *public* key (one per line), then re-run."
   echo "  On your laptop:  cat ~/.ssh/id_rsa.pub   (or id_ed25519.pub) — copy that line."
-  echo "  Template:        cp ssh-authorized-key.pub.example ssh-authorized-key.pub"
   exit 1
 fi
+
+# Create nixos_user file if missing
+USER_FILE="${SECRETS_DIR}/nixos_user"
+if [ ! -f "$USER_FILE" ]; then
+  echo "${USER_NAME}" > "$USER_FILE"
+  echo "Created ${USER_FILE} — edit to change the VM username."
+fi
+USER_NAME=$(cat "$USER_FILE")
 
 # ---- detect host firmware + emulator --------------------------------------
 EMULATOR="$(command -v qemu-system-${ARCH} || true)"
@@ -183,7 +188,7 @@ if $REDEFINE; then
     -e "s#@NVRAM_TEMPLATE@#${NVRAM_TEMPLATE}#g" \
     -e "s#@NVRAM@#${NVRAM}#g" \
     -e "s#@DISK@#${DISK}#g" \
-    -e "s#@SHARE_NIXOS_CONFIG@#${SHARE_NIXOS_CONFIG}#g" \
+    -e "s#@SECRETS@#${SECRETS_DIR}#g" \
     -e "s#@NIC@#${NIC}#g" \
     "${HERE}/domain.xml" >"$DOM"
   sed -i "s#<name>${NAME}</name>#<name>${NAME}</name>\n  <uuid>${UUID}</uuid>#" "$DOM"
@@ -219,11 +224,11 @@ else
   TOPLEVEL="${FLAKE}#nixosConfigurations.libvirt-vm-${ARCH}.config.system.build.toplevel"
 
   echo ">>> [1/2] compiling system closure on all cores: ${TOPLEVEL}"
-  nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --impure --no-link
+  nix build "$TOPLEVEL" --extra-experimental-features "nix-command flakes" --no-link
 
   echo ">>> [2/2] assembling qcow (pinned to cores ${BUILD_PIN}): ${FLAKE}#packages.${ARCH}-linux.qcow"
   OUT="$(taskset -c "$BUILD_PIN" nix build "${FLAKE}#packages.${ARCH}-linux.qcow" \
-    --extra-experimental-features "nix-command flakes" --impure --no-link --print-out-paths)"
+    --extra-experimental-features "nix-command flakes" --no-link --print-out-paths)"
   SRC_QCOW="$(find -L "$OUT" -name '*.qcow2' | head -1)"
   [ -n "$SRC_QCOW" ] || {
     echo "no .qcow2 in build output"
@@ -288,84 +293,36 @@ if $USE_BASE; then
   # The base image doesn't have the virtiofs mount yet — it only takes effect
   # AFTER nixos-rebuild. Set it up manually so the flake is visible for the
   # rebuild itself.
-  echo "  Setting up virtiofs share (base image doesn't have it yet)..."
+  echo "  Setting up repo and secrets (git clone + virtiofs mount)..."
+  # Mount secrets virtiofs and clone the flake repo
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mkdir","arg":["-p","/mnt/nixos-config"],"capture-output":true}}' >/dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mkdir","arg":["-p","/mnt/nixos-secrets","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' >/dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/modprobe","arg":["virtiofs"],"capture-output":true}}' > /dev/null 2>&1 || true
   sleep 1
   virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-config","/mnt/nixos-config"],"capture-output":true}}' >/dev/null 2>&1 || true
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/mount","arg":["-t","virtiofs","nixos-secrets","/mnt/nixos-secrets"],"capture-output":true}}' > /dev/null 2>&1 || true
   sleep 1
-
-  # Verify the flake is now visible
-  PID=$(virsh qemu-agent-command "$NAME" \
-    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ls","arg":["/mnt/nixos-config/flake.nix"],"capture-output":true}}' |
-    jq -r '.return.pid')
-  if [ -n "$PID" ] && [ "$PID" != "null" ]; then
-    sleep 3
-    OUT=$(virsh qemu-agent-command "$NAME" \
-      "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$PID}}")
-    if echo "$OUT" | jq -r '.return["out-data"] // ""' | base64 -d 2>/dev/null | grep -q flake; then
-      echo "  virtiofs share OK."
-      # Verify binary cache is reachable for the upcoming rebuild
-      echo "  Checking cachix cache..."
-      CACHE_OK=$(virsh qemu-agent-command "$NAME" \
-        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/nix","arg":["store","info","--store","https://fr33m0nk.cachix.org"],"capture-output":true}}' \
-        | jq -r '.return.pid')
-      if [ -n "$CACHE_OK" ] && [ "$CACHE_OK" != "null" ]; then
-        sleep 2
-        CACHE_STATUS=$(virsh qemu-agent-command "$NAME" \
-          "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$CACHE_OK}}" \
-          | jq -r '.return.exitcode // 1')
-        if [ "$CACHE_STATUS" = "0" ]; then
-          echo "  Cachix cache reachable (reads) — builds will use pre-built packages if available."
-        else
-          echo "  WARNING: Cachix cache unreachable. Builds will compile from source."
-        fi
-      fi
-      # Check if push auth is set up (token file on virtiofs)
-      TOKEN_OK=$(virsh qemu-agent-command "$NAME" \
-        '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/test","arg":["-f","/mnt/nixos-config/.cachix-token"],"capture-output":true}}' \
-        | jq -r '.return.pid')
-      if [ -n "$TOKEN_OK" ] && [ "$TOKEN_OK" != "null" ]; then
-        sleep 1
-        TOKEN_STATUS=$(virsh qemu-agent-command "$NAME" \
-          "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":$TOKEN_OK}}" \
-          | jq -r '.return.exitcode // 1')
-        if [ "$TOKEN_STATUS" = "0" ]; then
-          echo "  Cachix push token present — built packages will be uploaded after rebuild."
-        else
-          echo "  WARNING: No Cachix push token. Place it at .cachix-token on virtiofs."
-        fi
-      fi
-    else
-      echo "  WARNING: virtiofs share not visible. Check domain.xml <filesystem> config."
-      echo "  You can still mount it manually from the console:"
-      echo "    sudo mkdir -p /mnt/nixos-config"
-      echo "    sudo modprobe virtiofs"
-      echo "    sudo mount -t virtiofs nixos-config /mnt/nixos-config"
-    fi
-  fi
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/git","arg":["clone","https://github.com/fr33m0nk/libvirt-nix","/mnt/nixos-config"],"capture-output":true}}' > /dev/null 2>&1 || true
+  sleep 3
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/ssh-authorized-key.pub","/mnt/nixos-config/ssh-authorized-key.pub"],"capture-output":true}}' > /dev/null 2>&1 || true
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/.cachix-token","/mnt/nixos-config/.cachix-token"],"capture-output":true}}' > /dev/null 2>&1 || true
+  virsh qemu-agent-command "$NAME" \
+    '{"execute":"guest-exec","arguments":{"path":"/run/current-system/sw/bin/ln","arg":["-sf","/mnt/nixos-secrets/nixos_user","/mnt/nixos-config/nixos_user"],"capture-output":true}}' > /dev/null 2>&1 || true
 
   echo
   echo "=== Base image is booted. To apply the full dev toolchain: ==="
   echo ""
-  echo "  # First, verify the binary cache is reachable:"
-  echo "  virsh console ${NAME}"
-  echo "  # login as: nixos  /  password: nixos"
   echo "  echo \"\$NIXOS_USER\"                                    # verify NIXOS_USER is set"
-  echo "  nix store info --store https://fr33m0nk.cachix.org     # verify cache reads"
-  echo "  test -f /mnt/nixos-config/.cachix-token && echo push-ready  # verify push token present"
   echo ""
   echo "  # Then run the rebuild:"
-  echo "  sudo NIXOS_USER=\${NIXOS_USER:-prashantsinha} nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}-base"
-  echo ""
-  echo "  # After rebuild completes, push to cache (auto on subsequent switches):"
-  echo "  sudo systemctl start cachix-push.service"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}-base"
   echo ""
   echo "  This compiles emacs, clojure-lsp, and the full toolchain (~1-2 hours on RK3588)."
-  echo "  After it completes, log out and back in as: ${NIXOS_USER}"
+  echo "  After it completes, log out and back in as: ${USER_NAME}"
   echo "  (or run:  exec bash -l  to reload the shell with new aliases)"
   echo "  The VM IP (for SSH from your laptop):"
   echo "    virsh domifaddr ${NAME} --source agent"
@@ -374,7 +331,7 @@ fi
 
 echo
 echo "Done. '${NAME}' is defined and running."
-echo "  console : virsh console ${NAME}        (login: ${NIXOS_USER})"
+echo "  console : virsh console ${NAME}        (login: ${USER_NAME})"
 echo "  IP      : virsh domifaddr ${NAME}      (needs guest-agent up)"
 echo "  verify the 2+2 pinned layout:"
 print_verify
@@ -384,10 +341,10 @@ if $USE_BASE; then
   echo "Built packages are auto-pushed to fr33m0nk.cachix.org on boot."
   echo ""
   echo "Change config in place (state preserved):"
-  echo "  ssh \${NIXOS_USER:-prashantsinha}@<vm-ip>  then:"
-  echo "  sudo NIXOS_USER=\${NIXOS_USER:-prashantsinha} nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}-base"
+  echo "  ssh \${USER_NAME}@<vm-ip>  then:"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}-base"
 else
   echo "Change config in place (state preserved):"
-  echo "  ssh \${NIXOS_USER:-prashantsinha}@<vm-ip>  then:"
-  echo "  sudo NIXOS_USER=\${NIXOS_USER:-prashantsinha} nixos-rebuild switch --impure --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}"
+  echo "  ssh \${USER_NAME}@<vm-ip>  then:"
+  echo "  sudo nixos-rebuild switch --flake path:/mnt/nixos-config#libvirt-vm-\${ARCH}"
 fi

@@ -67,9 +67,7 @@
 
       overlays = [ herokuOverlay clojureLspOverlay emacs-overlay.overlays.default herdr.overlays.default ];
 
-      userName =
-        let v = builtins.getEnv "NIXOS_USER";
-        in if v == "" then throw "NIXOS_USER environment variable is not set" else v;
+      userName = lib.trim (builtins.readFile ./nixos_user);
 
       mkSystem = system: lib.nixosSystem {
         inherit system;

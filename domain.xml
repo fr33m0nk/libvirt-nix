@@ -119,12 +119,13 @@
       <target dev="vda" bus="virtio"/>
     </disk>
 
-    <!-- virtiofs share of the flake dir → /mnt/nixos-config in the guest.
-         target dir must match configuration.nix fileSystems device "nixos-config". -->
+    <!-- virtiofs share of secrets (ssh key, cachix token, nixos_user).
+         The flake repo is cloned by the guest from GitHub at boot.
+         target dir must match configuration.nix fileSystems device "nixos-secrets". -->
     <filesystem type="mount" accessmode="passthrough">
       <driver type="virtiofs"/>
-      <source dir="@SHARE_NIXOS_CONFIG@"/>
-      <target dir="nixos-config"/>
+      <source dir="@SECRETS@"/>
+      <target dir="nixos-secrets"/>
     </filesystem>
 
     <!-- Networking. Default: macvtap (type='direct') onto the host NIC → the VM
