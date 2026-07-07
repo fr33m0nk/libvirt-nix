@@ -118,6 +118,42 @@ in
     "TERMINFO_DIRS=${xterm-direct-semi}/share/terminfo:/run/current-system/sw/share/terminfo:/etc/terminfo:/usr/share/terminfo"
   ];
 
+  # --- herdr server (terminal workspace manager for AI agents) ------------
+  # Runs as a user systemd service. Reads the Iroh passphrase from
+  # /mnt/nixos-config/secrets/herdr.pass (gitignored, on virtiofs).
+  systemd.user.services.herdr = {
+    Unit = {
+      Description = "herdr server — terminal workspace manager for AI agents";
+      After = [ "network.target" ];
+    };
+    Service = {
+      Type = "forking";
+      ExecStartPre = pkgs.writeShellScript "herdr-server-pre" ''
+        # Stop any already-running server (herdr server stop exits 0 if none)
+        ${pkgs.herdr}/bin/herdr server stop 2>/dev/null || true
+        # Give the old server a moment to release its socket
+        sleep 0.5
+        # Read passphrase from secrets
+        if [ -f /mnt/nixos-config/secrets/herdr.pass ]; then
+          export HERDR_IROH_KEY_PASSPHRASE="$(cat /mnt/nixos-config/secrets/herdr.pass)"
+        fi
+      '';
+      ExecStart = "${pkgs.herdr}/bin/herdr server";
+      ExecStartPost = pkgs.writeShellScript "herdr-server-post" ''
+        if [ -f /mnt/nixos-config/secrets/herdr.pass ]; then
+          export HERDR_IROH_KEY_PASSPHRASE="$(cat /mnt/nixos-config/secrets/herdr.pass)"
+        fi
+        ${pkgs.herdr}/bin/herdr iroh-bridge serve
+      '';
+      ExecStop = "${pkgs.herdr}/bin/herdr server stop";
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+    Install = {
+      WantedBy = [ "default.target" ];
+    };
+  };
+
   home.sessionVariables = {
     JAVA_HOME = "${pkgs.graalvmPackages.graalvm-ce}";
     EDITOR = "emacs";   # use with: emacs -nw

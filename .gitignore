@@ -10,3 +10,4 @@ result-*
 *.qcow2
 .DS_Store
 nixos_user
+herdr.pass
