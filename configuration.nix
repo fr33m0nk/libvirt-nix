@@ -57,6 +57,7 @@
         exit 0
       fi
       git clone https://github.com/fr33m0nk/libvirt-nix "$REPO_DIR"
+      chown -R ${userName}:users "$REPO_DIR"
       mkdir -p "$REPO_DIR/secrets"
     '';
     serviceConfig = {
