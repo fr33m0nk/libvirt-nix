@@ -2,6 +2,7 @@
 .cachix.token
 ssh-authorized-key.pub
 nixos_user
+herdr.pass
 
 # Build artifacts
 result
