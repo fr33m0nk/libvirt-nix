@@ -196,6 +196,7 @@ in
       # resolves the entry via TERMINFO_DIRS on its systemd service (see home.nix).
       alias et='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacsclient -t'
       alias eat='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacsclient -t -a ""'
+      alias heat='TERM=xterm-direct-semi TERM_PROGRAM=WezTerm emacsclient -t -a ""'
       # Rust CLI replacements (interactive shells only; scripts use real ls/cat).
       alias ls='eza --group-directories-first'
       alias ll='eza -lah --group-directories-first'

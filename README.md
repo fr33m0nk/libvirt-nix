@@ -269,6 +269,10 @@ function et
     mosh --predict=experimental devenv -- bash -lic 'et'
 end
 function eat
+    mosh --predict=experimental devenv -- bash -lic 'et'
+end
+
+function heat
     mosh --predict=experimental devenv -- bash -lic 'eat'
 end
 ```
