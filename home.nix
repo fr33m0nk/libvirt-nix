@@ -96,6 +96,10 @@ in
     mosh                        # responsive SSH replacement for emacs -nw
     xterm-direct-semi           # mosh-safe truecolor terminfo (see let block)
     herdr                       # terminal workspace manager for AI coding agents
+    ffmpeg                      # encode/decode/stream audio & video
+    typst                       # modern typesetting (LaTeX alternative)
+    libsixel                    # img2sixel: convert images to sixel graphics
+    mpv                         # media player
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------
