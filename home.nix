@@ -125,28 +125,27 @@ in
   # --- herdr server (terminal workspace manager for AI agents) ------------
   # Runs as a user systemd service. Reads the Iroh passphrase from
   # /mnt/nixos-config/secrets/herdr.pass (gitignored, on virtiofs).
+  # Type=simple because herdr server runs in the foreground (does not fork).
   systemd.user.services.herdr = {
     Unit = {
       Description = "herdr server — terminal workspace manager for AI agents";
       After = [ "network.target" ];
     };
     Service = {
-      Type = "forking";
+      Type = "simple";
+      EnvironmentFile = [
+        # Drop-in: if secrets/herdr.pass exists, set HERDR_IROH_KEY_PASSPHRASE.
+        # systemd parses KEY=VALUE pairs; the file should contain exactly:
+        #   HERDR_IROH_KEY_PASSPHRASE=yourpassphrase
+        "/mnt/nixos-config/secrets/herdr.pass"
+      ];
       ExecStartPre = pkgs.writeShellScript "herdr-server-pre" ''
-        # Stop any already-running server (herdr server stop exits 0 if none)
+        # Stop any already-running server (exits 0 if none running)
         ${pkgs.herdr}/bin/herdr server stop 2>/dev/null || true
-        # Give the old server a moment to release its socket
         sleep 0.5
-        # Read passphrase from secrets
-        if [ -f /mnt/nixos-config/secrets/herdr.pass ]; then
-          export HERDR_IROH_KEY_PASSPHRASE="$(cat /mnt/nixos-config/secrets/herdr.pass)"
-        fi
       '';
       ExecStart = "${pkgs.herdr}/bin/herdr server";
       ExecStartPost = pkgs.writeShellScript "herdr-server-post" ''
-        if [ -f /mnt/nixos-config/secrets/herdr.pass ]; then
-          export HERDR_IROH_KEY_PASSPHRASE="$(cat /mnt/nixos-config/secrets/herdr.pass)"
-        fi
         ${pkgs.herdr}/bin/herdr iroh-bridge serve
       '';
       ExecStop = "${pkgs.herdr}/bin/herdr server stop";
