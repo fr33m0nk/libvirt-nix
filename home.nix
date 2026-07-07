@@ -100,7 +100,7 @@ in
     typst                       # modern typesetting (LaTeX alternative)
     libsixel                    # img2sixel: convert images to sixel graphics
     mpv                         # media player
-    ssh-keyscan                 # scan SSH host keys (part of openssh)
+    openssh                     # ssh, ssh-keyscan, sftp
   ];
 
   # --- Emacs daemon (systemd user service) ----------------------------------
