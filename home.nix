@@ -146,7 +146,7 @@ in
       '';
       ExecStart = "${pkgs.herdr}/bin/herdr server";
       ExecStartPost = pkgs.writeShellScript "herdr-server-post" ''
-        ${pkgs.herdr}/bin/herdr iroh-bridge serve
+        nohup ${pkgs.herdr}/bin/herdr iroh-bridge serve > /dev/null 2>&1 &
       '';
       ExecStop = "${pkgs.herdr}/bin/herdr server stop";
       Restart = "on-failure";
